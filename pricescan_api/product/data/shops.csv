@@ -1,0 +1,4 @@
+id,name,domain,parser_type,is_active
+1,HobbyGames,https://hobbygames.ru/,beautifulsoup,True
+2,Мосигра,https://www.mosigra.ru/,playwright,True
+3,Wildberries,https://www.wildberries.ru/catalog/igrushki/nastolnye-igry/dlya-vzroslyh,api_json,True
