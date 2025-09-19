@@ -21,7 +21,7 @@ def main_menu_kb() -> ReplyKeyboardMarkup:
     )
 
 
-def offer_actions_kb(product_id: int, url: str, currency: str) -> InlineKeyboardMarkup:
+def offer_actions_kb(product_id: int, url: str, currency: str):
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [

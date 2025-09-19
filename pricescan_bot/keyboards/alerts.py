@@ -1,3 +1,4 @@
+# pricescan_bot/keyboards/alerts.py
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 

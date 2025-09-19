@@ -1,4 +1,3 @@
-# pricescan_bot/services/state.py
 from typing import Dict, Set
 
 _wait_mode: Dict[int, str] = {}
@@ -19,8 +18,10 @@ def clear_wait_mode(user_id: int) -> None:
 
 def toggle_multi_selected(user_id: int, item_id: int) -> set[int]:
     s = _multi_selected.setdefault(user_id, set())
-    if item_id in s: s.remove(item_id)
-    else: s.add(item_id)
+    if item_id in s:
+        s.remove(item_id)
+    else:
+        s.add(item_id)
     return s
 
 

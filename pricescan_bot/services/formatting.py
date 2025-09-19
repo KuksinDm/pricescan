@@ -2,7 +2,7 @@ def fmt_dt_iso(ts: str | None) -> str:
     if not ts:
         return "-"
     ts = ts.replace("Z", "+00:00")
-    return ts.replace("T", " ")[:16]  # YYYY-MM-DD HH:MM
+    return ts[:10]
 
 
 def format_offer_text(o: dict) -> str:

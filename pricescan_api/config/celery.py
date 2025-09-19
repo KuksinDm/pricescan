@@ -18,6 +18,14 @@ app.conf.beat_schedule = {
         "task": "product.tasks.refresh_all_prices",
         "schedule": crontab(hour="*/12"),
     },
+    "bulk-parse-hobbygames-every-3-days": {
+        "task": "product.tasks.bulk_parse_hobbygames", 
+        "schedule": crontab(hour=2, minute=0, day_of_week=1),
+    },
+    "monitor-favorites-every-3h": {
+        "task": "product.tasks.monitor_all_user_favorites",
+        "schedule": crontab(minute=0, hour="*/3"),
+},
 }
 
 CELERY_TASK_ROUTES = {
