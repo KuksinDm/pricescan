@@ -11,7 +11,6 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "req"))
 from ghbs.client import HttpClient
 from ghbs.parse_category import parse_category_page
 from ghbs.parse_product import parse_product_page
-from main import WildberriesParser
 
 app = FastAPI(title="PriceScan Parser API", version="2.0.0")
 
@@ -57,11 +56,8 @@ async def search_products(request: SearchRequest):
             return {"products": products[: request.limit]}
 
         elif request.shop == "wildberries":
-            # Wildberries через API
-            parser = WildberriesParser()
-            products = await parser.get_board_games_data(limit=request.limit)
-            # Конвертируем в dict
-            return {"products": [p.model_dump() for p in products]}
+            # Wildberries через API (заглушка)
+            return {"products": [], "message": "Wildberries parser not implemented yet"}
 
         else:
             return {"products": []}

@@ -1,0 +1,38 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - "alert_rules.yml"
+
+scrape_configs:
+  - job_name: 'pricescan-api'
+    static_configs:
+      - targets: ['web_pricescan:8000']
+    metrics_path: '/api/monitoring/metrics/'
+    scrape_interval: 30s
+
+  - job_name: 'pricescan-parsers'
+    static_configs:
+      - targets: 
+        - 'pricescan_parser:8000'
+        - 'pricescan_playwright:8000'
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:6379']
+    scrape_interval: 30s
+
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['db_pricescan:5432']
+    scrape_interval: 30s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+

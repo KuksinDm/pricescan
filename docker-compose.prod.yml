@@ -1,0 +1,194 @@
+version: '3.8'
+
+services:
+  db_pricescan:
+    image: postgres:15
+    volumes:
+      - postgres_data_pricescan:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-pricescan_db}
+      - POSTGRES_USER=${POSTGRES_USER:-pricescan_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-pricescan_password}
+    restart: always
+    networks:
+      - app_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pricescan_user}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7.2-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    networks: [app_network]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  web_pricescan:
+    build: ./pricescan_api
+    image: myzos/web_pricescan:latest
+    volumes:
+      - media_data_pricescan:/app/media
+      - staticfiles_pricescan:/app/collected_static
+      - ./logs:/app/logs
+    env_file:
+      - .env
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings_prod
+    depends_on:
+      db_pricescan:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "python - <<'PY'\nimport urllib.request,sys;url='http://localhost:8000/api/health/';\ntry:\n  urllib.request.urlopen(url, timeout=3); sys.exit(0)\nexcept Exception:\n  sys.exit(1)\nPY"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      app_network:
+        aliases:
+          - web-pricescan
+
+  bot_pricescan:
+    build: ./pricescan_bot
+    image: myzos/bot_pricescan:latest
+    env_file:
+      - .env
+    environment:
+      API_BASE_URL: http://web-pricescan:8000/api/
+    depends_on:
+      web_pricescan:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - app_network
+
+  celery_worker_pricescan:
+    build: ./pricescan_api
+    image: myzos/web_pricescan:latest
+    env_file: [.env]
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings_prod
+    depends_on: 
+      redis: 
+        condition: service_healthy
+      db_pricescan: 
+        condition: service_healthy
+    command: celery -A config worker --loglevel=info -Q light,heavy,monitoring --concurrency=4
+    restart: always
+    networks: [app_network]
+
+  celery_beat_pricescan:
+    build: ./pricescan_api
+    image: myzos/web_pricescan:latest
+    env_file: [.env]
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings_prod
+    depends_on: 
+      redis: 
+        condition: service_healthy
+    command: celery -A config beat --loglevel=info
+    restart: always
+    networks: [app_network]
+
+  pricescan_parser:
+    build: ./pricescan_parser
+    image: myzos/pricescan_parser:latest
+    networks:
+      - app_network
+    depends_on:
+      - redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  pricescan_playwright:
+    build: ./pricescan_playwright
+    image: myzos/pricescan_playwright:latest
+    networks:
+      - app_network
+    depends_on:
+      - redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  nginx_pricescan:
+    build:
+      context: ./nginx/
+      dockerfile: Dockerfile
+    image: myzos/nginx_pricescan:latest
+    volumes:
+      - staticfiles_pricescan:/var/html/static
+      - media_data_pricescan:/app/media
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - web_pricescan
+    restart: always
+    networks:
+      - app_network
+
+  # Monitoring (optional)
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+    networks:
+      - app_network
+    profiles:
+      - monitoring
+
+  grafana:
+    image: grafana/grafana:latest
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+    restart: unless-stopped
+    networks:
+      - app_network
+    profiles:
+      - monitoring
+
+volumes:
+  postgres_data_pricescan:
+  staticfiles_pricescan:
+  media_data_pricescan:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  app_network:
+    driver: bridge
+
