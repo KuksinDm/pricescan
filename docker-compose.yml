@@ -93,6 +93,23 @@ services:
       retries: 3
       start_period: 40s
 
+  pricescan_playwright:
+    build: ./pricescan_playwright
+    image: myzos/pricescan_playwright:latest
+    ports:
+      - "8002:8000"
+    networks:
+      - app_network
+    depends_on:
+      - redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+      
   nginx_pricescan:
     build:
       context: ./nginx/
