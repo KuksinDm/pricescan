@@ -163,7 +163,7 @@ class ApiClient:
         currency: str = "RUB",
         shop_id: int | None = None,
     ) -> bool:
-        url = self.base_url + "alerts/"
+        url = self.base_url + "price-alerts/"
         headers = {}
         if telegram_id in self._access_by_tg:
             headers["Authorization"] = f"Bearer {self._access_by_tg[telegram_id]}"
@@ -178,7 +178,7 @@ class ApiClient:
             return resp.status in (200, 201)
 
     async def list_alerts(self, *, telegram_id: int, limit: int = 10):
-        url = self.base_url + "alerts/"
+        url = self.base_url + "price-alerts/"
         headers = {}
         if telegram_id in self._access_by_tg:
             headers["Authorization"] = f"Bearer {self._access_by_tg[telegram_id]}"
@@ -190,7 +190,7 @@ class ApiClient:
             return data.get("results", data)
 
     async def toggle_alert(self, alert_id: int, *, telegram_id: int) -> bool:
-        url = self.base_url + f"alerts/{alert_id}/toggle/"
+        url = self.base_url + f"price-alerts/{alert_id}/toggle/"
         headers = {}
         if telegram_id in self._access_by_tg:
             headers["Authorization"] = f"Bearer {self._access_by_tg[telegram_id]}"
@@ -198,7 +198,7 @@ class ApiClient:
             return resp.status == 200
 
     async def delete_alert(self, alert_id: int, *, telegram_id: int) -> bool:
-        url = self.base_url + f"alerts/{alert_id}/"
+        url = self.base_url + f"price-alerts/{alert_id}/"
         headers = {}
         if telegram_id in self._access_by_tg:
             headers["Authorization"] = f"Bearer {self._access_by_tg[telegram_id]}"
@@ -209,7 +209,7 @@ class ApiClient:
         self, alert_id: int, *, telegram_id: int, threshold_price: float
     ) -> bool:
         """Изменить пороговую цену у алёрта."""
-        url = self.base_url + f"alerts/{alert_id}/"
+        url = self.base_url + f"price-alerts/{alert_id}/"
         headers = {}
         if telegram_id in self._access_by_tg:
             headers["Authorization"] = f"Bearer {self._access_by_tg[telegram_id]}"
@@ -237,7 +237,7 @@ class ApiClient:
     async def list_alerts_page(
         self, *, telegram_id: int, limit: int = 5, offset: int = 0
     ):
-        url = self.base_url + "alerts/"
+        url = self.base_url + "price-alerts/"
         headers = {}
         if telegram_id in self._access_by_tg:
             headers["Authorization"] = f"Bearer {self._access_by_tg[telegram_id]}"

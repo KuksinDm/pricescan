@@ -29,7 +29,7 @@ python manage.py createsuperuser --noinput \
 # python manage.py load_categories     || true
 # python manage.py load_publishers     || true
 # python manage.py load_products       || true
-# python manage.py load_shops          || true
+python manage.py load_shops          || true
 # python manage.py load_offers         || true
 # python manage.py load_price_history  || true
 

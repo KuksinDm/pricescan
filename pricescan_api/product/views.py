@@ -4,18 +4,27 @@ from rest_framework import mixins, permissions, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from .models import Offer, PriceAlert, Product
+from .models import Offer, PriceAlert, PriceHistory, Product, Shop
 from .serializers import (
     OfferSerializer,
     PriceAlertSerializer,
+    PriceHistorySerializer,
     ProductSerializer,
+    ShopSerializer,
 )
-from .tasks import check_alerts_for_product, refresh_product
+from .tasks import (
+    check_alerts_for_product,
+    discover_products_for_shop,
+    health_check_parsers,
+    refresh_product,
+    update_shop_products,
+)
 
 
 class ProductViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [permissions.AllowAny]
     serializer_class = ProductSerializer
+    queryset = Product.objects.all()
 
     def get_queryset(self):
         queryset = Product.objects.select_related(
@@ -73,6 +82,7 @@ class ProductViewSet(viewsets.ReadOnlyModelViewSet):
 class OfferViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [permissions.AllowAny]
     serializer_class = OfferSerializer
+    queryset = Offer.objects.all()
 
     def get_queryset(self):
         queryset = Offer.objects.select_related("product", "shop")
@@ -101,6 +111,7 @@ class PriceAlertViewSet(
 ):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = PriceAlertSerializer
+    queryset = PriceAlert.objects.all()
 
     def get_queryset(self):
         return PriceAlert.objects.filter(user=self.request.user).select_related(
@@ -119,3 +130,62 @@ class PriceAlertViewSet(
         alert.is_active = not alert.is_active
         alert.save(update_fields=["is_active"])
         return Response({"is_active": alert.is_active}, status=200)
+
+
+class PriceHistoryViewSet(viewsets.ReadOnlyModelViewSet):
+    permission_classes = [permissions.AllowAny]
+    serializer_class = PriceHistorySerializer
+    queryset = PriceHistory.objects.all()
+
+    def get_queryset(self):
+        queryset = PriceHistory.objects.select_related("offer__product", "offer__shop")
+        offer_id = self.request.query_params.get("offer")
+        if offer_id and offer_id.isdigit():
+            queryset = queryset.filter(offer_id=int(offer_id))
+        return queryset.order_by("-timestamp")
+
+
+class ShopViewSet(viewsets.ReadOnlyModelViewSet):
+    permission_classes = [permissions.AllowAny]
+    serializer_class = ShopSerializer
+    queryset = Shop.objects.all()
+    http_method_names = ["get"]
+
+    @extend_schema(summary="Список активных магазинов")
+    def list(self, request):
+        shops = Shop.objects.filter(is_active=True)
+        data = [
+            {
+                "id": shop.id,
+                "name": shop.name,
+                "domain": shop.domain,
+                "parser_type": shop.parser_type,
+                "is_active": shop.is_active,
+            }
+            for shop in shops
+        ]
+        return Response(data)
+
+    @extend_schema(summary="Обновить все товары магазина")
+    @action(detail=True, methods=["post"], url_path="refresh-products")
+    def refresh_products(self, request, pk=None):
+        """Обновить все товары конкретного магазина"""
+        update_shop_products.delay(int(pk))
+        return Response({"queued": True}, status=202)
+
+    @extend_schema(summary="Найти новые товары в магазине")
+    @action(detail=True, methods=["post"], url_path="discover")
+    def discover_products(self, request, pk=None):
+        """Найти новые товары в магазине"""
+        query = request.data.get("query", "настольная игра")
+        limit = request.data.get("limit", 50)
+
+        discover_products_for_shop.delay(int(pk), query, limit)
+        return Response({"queued": True}, status=202)
+
+    @extend_schema(summary="Проверить здоровье парсеров")
+    @action(detail=False, methods=["get"], url_path="health-check")
+    def health_check(self, request):
+        """Проверить здоровье всех парсеров"""
+        result = health_check_parsers.delay()
+        return Response({"task_id": result.id}, status=202)

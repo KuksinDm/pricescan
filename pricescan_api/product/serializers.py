@@ -40,11 +40,17 @@ class OfferSerializer(serializers.ModelSerializer):
     shop = ShopSerializer(read_only=True)
     product_title = serializers.CharField(source="product.title", read_only=True)
     product_author = serializers.CharField(source="product.author.name", read_only=True)
-    product_publisher = serializers.CharField(source="product.publisher.name", read_only=True)
-    product_category = serializers.CharField(source="product.category.name", read_only=True)
+    product_publisher = serializers.CharField(
+        source="product.publisher.name", read_only=True
+    )
+    product_category = serializers.CharField(
+        source="product.category.name", read_only=True
+    )
     min_players = serializers.IntegerField(source="product.min_players", read_only=True)
     max_players = serializers.IntegerField(source="product.max_players", read_only=True)
-    playtime_min = serializers.IntegerField(source="product.playtime_min", read_only=True)
+    playtime_min = serializers.IntegerField(
+        source="product.playtime_min", read_only=True
+    )
     min_age = serializers.IntegerField(source="product.min_age", read_only=True)
     description = serializers.CharField(source="product.description", read_only=True)
     image_url = serializers.URLField(source="product.image_url", read_only=True)

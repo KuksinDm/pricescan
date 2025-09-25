@@ -1,88 +1,119 @@
 import logging
+from parser.playwright_parser import PlaywrightParser
 
 from fastapi import FastAPI, HTTPException
-from main import MosigraParser
-from pydantic import BaseModel
+from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="PriceScan Playwright Parser API", version="1.0.0")
+from shared_models import (
+    CatalogRequest,
+    CatalogResponse,
+    ParseRequest,
+    ParseResponse,
+)
+
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+
+app = FastAPI(
+    title="PriceScan Playwright Parser API",
+    version="2.0.0",
+    description="Универсальный API для парсинга товаров через Playwright",
+)
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 logger = logging.getLogger(__name__)
 
 
-class ParseProductRequest(BaseModel):
-    url: str
-
-
-class SearchRequest(BaseModel):
-    query: str
-    limit: int = 50
-    max_pages: int = 2
-    max_products: int = 20
-
-
-@app.post("/parse/product")
-async def parse_product(request: ParseProductRequest):
-    """Парсинг конкретного товара через Playwright"""
+@app.post("/parse/product", response_model=ParseResponse)
+async def parse_product(request: ParseRequest):
+    """Парсинг конкретного товара"""
     try:
-        parser = MosigraParser()
-        browser, page = await parser.start_browser()
+        logger.info(f"Получен запрос на парсинг товара: {request.url}")
 
-        try:
-            product = await parser.parse_product_card(page, request.url)
-            if product:
-                return product.model_dump()
-            else:
-                raise HTTPException(
-                    status_code=404, detail="Товар не найден или не удалось спарсить"
-                )
+        parser = PlaywrightParser(base_url=request.shop_url)
+        product_data = await parser.parse_product(request.url)
 
-        finally:
-            await browser.close()
-            if parser.playwright:
-                await parser.playwright.stop()
+        if product_data:
+            return ParseResponse(
+                success=True, data=product_data, shop_name=request.shop_name
+            )
+        else:
+            return ParseResponse(
+                success=False,
+                error="Не удалось спарсить товар",
+                shop_name=request.shop_name,
+            )
 
     except Exception as e:
-        logger.error(f"Parse product error: {e}")
+        logger.error(f"Ошибка при парсинге товара: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/parse/search")
-async def search_products(request: SearchRequest):
-    """Поиск и парсинг товаров через Playwright"""
+@app.post("/parse/catalog", response_model=CatalogResponse)
+async def parse_catalog(request: CatalogRequest):
+    """Парсинг каталога магазина"""
     try:
-        parser = MosigraParser()
+        logger.info(f"Получен запрос на парсинг каталога: {request.shop_url}")
 
-        # Запускаем парсинг
-        await parser.run(max_pages=request.max_pages, max_products=request.max_products)
+        parser = PlaywrightParser(base_url=request.shop_url)
+        products = await parser.parse_catalog(request.shop_url, request.limit)
 
-        # Возвращаем результаты
-        products = [product.model_dump() for product in parser.products]
-
-        return {
-            "products": products,
-            "total_found": len(products),
-            "failed_urls": len(parser.failed_urls),
-        }
+        return CatalogResponse(
+            success=True,
+            products=products,
+            total_found=len(products),
+            failed_urls=0,
+        )
 
     except Exception as e:
-        logger.error(f"Search products error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Ошибка при парсинге каталога: {e}")
+        return CatalogResponse(
+            success=False,
+            products=[],
+            total_found=0,
+            failed_urls=0,
+            error=str(e),
+        )
 
 
 @app.get("/health")
 async def health_check():
-    return {"status": "ok", "service": "pricescan-playwright-parser"}
+    """Проверка здоровья сервиса"""
+    return {
+        "status": "ok",
+        "service": "pricescan-playwright-parser",
+        "version": "2.0.0",
+    }
 
 
 @app.get("/parsers")
 async def list_parsers():
-    """Список доступных парсеров"""
     return {
         "parsers": {
-            "mosigra": {
+            "playwright": {
                 "type": "playwright",
-                "description": "Mosigra.ru парсер через Playwright",
-                "base_url": "https://www.mosigra.ru",
+                "description": "Универсальный парсер через Playwright",
+                "supported_operations": ["parse_product", "parse_catalog"],
             }
         }
+    }
+
+
+@app.get("/")
+async def root():
+    """Корневой эндпоинт"""
+    return {
+        "message": "PriceScan Playwright Parser API",
+        "version": "2.0.0",
+        "docs": "/docs",
     }

@@ -1,7 +1,13 @@
 [project]
 name = "pricescan-playwright"
-version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
+version = "2.0.0"
+description = "Playwright парсер для PriceScan - специализированный парсер для Mosigra.ru"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0", 
+    "playwright>=1.40.0",
+    "pydantic>=2.5.0",
+    "httpx>=0.25.0",
+]
+

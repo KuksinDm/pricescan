@@ -17,4 +17,4 @@ COPY . .
 EXPOSE 8000
 
 # Запускаем сервер через entrypoint.sh
-CMD ["uvicorn", "api_server:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "uvicorn", "api_server:app", "--host", "0.0.0.0", "--port", "8000"]

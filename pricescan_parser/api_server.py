@@ -1,78 +1,113 @@
-import os
-import sys
+from parser import ApiJsonParser, BeautifulSoupParser
 
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from fastapi import FastAPI
 
-# Добавляем пути к парсерам
-sys.path.append(os.path.join(os.path.dirname(__file__), "bs"))
-sys.path.append(os.path.join(os.path.dirname(__file__), "req"))
+from shared_models import (
+    CatalogRequest,
+    CatalogResponse,
+    ParseRequest,
+    ParseResponse,
+)
 
-from ghbs.client import HttpClient
-from ghbs.parse_category import parse_category_page
-from ghbs.parse_product import parse_product_page
-from main import WildberriesParser
-
-app = FastAPI(title="PriceScan Parser API", version="2.0.0")
-
-
-class ParseProductRequest(BaseModel):
-    url: str
-    parser_type: str = "beautifulsoup"  # beautifulsoup, api_json
+app = FastAPI(
+    title="PriceScan Parser API",
+    version="3.0.0",
+    description="Универсальный API для парсинга товаров",
+)
 
 
-class SearchRequest(BaseModel):
-    query: str
-    limit: int = 50
-    shop: str = "hobbygames"  # hobbygames, wildberries
-
-
-@app.post("/parse/product")
-async def parse_product(request: ParseProductRequest):
+@app.post("/parse/product", response_model=ParseResponse)
+async def parse_product(request: ParseRequest):
     """Парсинг конкретного товара"""
     try:
         if request.parser_type == "beautifulsoup":
-            # HobbyGames через BeautifulSoup
-            client = HttpClient()
-            html = client.get_text(request.url)
-            result = parse_product_page(html, request.url)
-            return result
+            # BeautifulSoup парсер
+            parser = BeautifulSoupParser(
+                base_url=request.shop_url or "https://hobbygames.ru"
+            )
+
+            # Формируем полный URL
+            if request.url.startswith("http"):
+                full_url = request.url
+            else:
+                base_url = request.shop_url or "https://hobbygames.ru"
+                full_url = f"{base_url.rstrip('/')}/{request.url.lstrip('/')}"
+
+            product = parser.parse_product(full_url)
+
+            if product:
+                return ParseResponse(
+                    success=True, data=product, shop_name=request.shop_name
+                )
+            else:
+                return ParseResponse(
+                    success=False,
+                    error="Не удалось спарсить товар",
+                    shop_name=request.shop_name,
+                )
+
+        elif request.parser_type == "api_json":
+            # API JSON парсер
+            parser = ApiJsonParser(
+                base_url=request.shop_url or "https://api.example.com"
+            )
+            # Извлекаем ID из URL только для API JSON парсера
+            product_id = request.url.split("/")[-1]
+            product = await parser.parse_product(product_id)
+
+            if product:
+                return ParseResponse(
+                    success=True, data=product, shop_name=request.shop_name
+                )
+            else:
+                return ParseResponse(
+                    success=False,
+                    error="Не удалось спарсить товар",
+                    shop_name=request.shop_name,
+                )
         else:
-            return {"error": "Unsupported parser type"}
+            return ParseResponse(
+                success=False,
+                error=f"Неподдерживаемый тип парсера: {request.parser_type}",
+                shop_name=request.shop_name,
+            )
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return ParseResponse(success=False, error=str(e), shop_name=request.shop_name)
 
 
-@app.post("/parse/search")
-async def search_products(request: SearchRequest):
-    """Поиск товаров"""
+@app.post("/parse/catalog", response_model=CatalogResponse)
+async def parse_catalog(request: CatalogRequest):
+    """Парсинг каталога магазина"""
     try:
-        if request.shop == "hobbygames":
-            # HobbyGames через категорию
-            client = HttpClient()
-            category_url = "https://hobbygames.ru/nastolnye-igry/"
-            html = client.get_text(category_url)
-            products = parse_category_page(html, category_url)
-            return {"products": products[: request.limit]}
+        # Используем parser_type из запроса
+        if request.parser_type == "api_json":
+            parser = ApiJsonParser(base_url=request.shop_url)
+            products = await parser.parse_catalog(request.shop_url, request.limit)
+        else:  # beautifulsoup по умолчанию
+            parser = BeautifulSoupParser(base_url=request.shop_url)
+            products = parser.parse_catalog(request.shop_url, request.limit)
 
-        elif request.shop == "wildberries":
-            # Wildberries через API
-            parser = WildberriesParser()
-            products = await parser.get_board_games_data(limit=request.limit)
-            # Конвертируем в dict
-            return {"products": [p.model_dump() for p in products]}
-
-        else:
-            return {"products": []}
+        return CatalogResponse(
+            success=True,
+            products=products,
+            total_found=len(products),
+            failed_urls=0,
+        )
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return CatalogResponse(
+            success=False,
+            products=[],
+            total_found=0,
+            failed_urls=0,
+            error=str(e),
+        )
 
 
 @app.get("/health")
 async def health_check():
-    return {"status": "ok", "service": "pricescan-parser-v2"}
+    return {"status": "ok", "service": "pricescan-parser-v3"}
 
 
 @app.get("/parsers")
@@ -83,10 +118,12 @@ async def list_parsers():
             "hobbygames": {
                 "type": "beautifulsoup",
                 "description": "HobbyGames.ru парсер через BeautifulSoup",
+                "base_url": "https://hobbygames.ru",
             },
             "wildberries": {
                 "type": "api_json",
                 "description": "Wildberries парсер через JSON API",
+                "base_url": "https://catalog.wb.ru",
             },
         }
     }

@@ -1,601 +1,266 @@
-import asyncio
 import logging
-from decimal import Decimal
-from typing import Dict, Optional
+from typing import Iterable
 
-import httpx
+import requests
 from celery import shared_task
-from django.db import transaction
 from django.utils import timezone
 
-from .models import (
-    Author,
-    Category,
-    Offer,
-    PriceAlert,
-    PriceHistory,
-    Product,
-    Publisher,
-    Shop,
-)
+from user.models import User, UserFavorite
 
-logger = logging.getLogger(__name__)
+from .models import Offer, PriceAlert, Shop
+from .services.universal_parser_service import UniversalParserService
+
+logger = logging.getLogger("parser_results")
 
 
-# ========== ОСНОВНЫЕ ЗАДАЧИ ПАРСИНГА ==========
+@shared_task(queue="light")
+def parse_product_universal(product_id: int, shop_id: int, url: str = None):
+    try:
+        service = UniversalParserService()
+        result = service.parse_product(product_id, shop_id, url)
+
+        if result["ok"]:
+            logger.info(
+                f"Updated product {product_id}: "
+                f"{result.get('price')} {result.get('title', '')}"
+            )
+
+        return result
+    except Exception as e:
+        logger.error(f"Parse error for product {product_id}: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+@shared_task(queue="light")
+def bulk_parse_all_shops() -> dict:
+    """Массовый парсинг всех товаров по всем магазинам (раз в 3 дня)"""
+    try:
+        total_parsed = 0
+        results = {}
+
+        # Получаем все активные магазины
+        shops = Shop.objects.filter(is_active=True)
+
+        for shop in shops:
+            logger.info(
+                f"Starting bulk parse for shop: {shop.name} ({shop.parser_type})"
+            )
+
+            # Получаем все офферы этого магазина
+            offers = Offer.objects.filter(shop=shop)
+
+            if offers.exists():
+                # Обновляем существующие товары
+                logger.info(
+                    f"Updating {offers.count()} existing products for {shop.name}"
+                )
+
+                for offer in offers:
+                    parse_product_universal.delay(offer.product.id, shop.id, offer.url)
+                    total_parsed += 1
+
+                results[shop.name] = {
+                    "action": "update",
+                    "queued": offers.count(),
+                    "parser_type": shop.parser_type,
+                }
+            else:
+                # Для новых магазинов запускаем поиск товаров
+                discover_products_for_shop.delay(shop.id)
+                results[shop.name] = {
+                    "action": "discover",
+                    "parser_type": shop.parser_type,
+                }
+
+        return {
+            "ok": True,
+            "total_queued": total_parsed,
+            "shops_processed": len(shops),
+            "results": results,
+        }
+    except Exception as e:
+        logger.error(f"Bulk parse error: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+@shared_task(queue="light")
+def monitor_favorite_products(user_id: int) -> int:
+    """Мониторинг избранных товаров пользователя каждые 2 часа"""
+
+    favorites = UserFavorite.objects.filter(user_id=user_id).select_related("product")
+    count = 0
+
+    for favorite in favorites:
+        refresh_product.delay(favorite.product.id)
+        count += 1
+
+    logger.info(f"Queued monitoring for {count} favorite products of user {user_id}")
+    return count
+
+
+@shared_task(queue="light")
+def monitor_all_user_favorites() -> int:
+    """Мониторинг всех пользовательских избранных товаров"""
+
+    users_with_favorites = User.objects.filter(favorites__isnull=False).distinct()
+    count = 0
+
+    for user in users_with_favorites:
+        monitor_favorite_products.delay(user.id)
+        count += 1
+
+    logger.info(f"Queued favorite monitoring for {count} users")
+    return count
+
+
+def _dispatch_for_shop(product_id: int, shop: Shop):
+    """Диспетчер парсеров по типу магазина - теперь универсальный"""
+    # Получаем URL из существующего оффера
+    offer = Offer.objects.filter(product_id=product_id, shop=shop).first()
+    url = offer.url if offer else None
+
+    # Все парсеры теперь используют универсальный сервис
+    parse_product_universal.delay(product_id, shop.id, url)
+
+
+@shared_task(queue="light")
+def refresh_product(product_id: int) -> int:
+    """Запланировать обновление по всем активным магазинам, где есть офферы продукта."""
+    shops: Iterable[Shop] = Shop.objects.filter(
+        is_active=True, offer__product_id=product_id
+    ).distinct()
+    count = 0
+
+    for shop in shops:
+        _dispatch_for_shop(product_id, shop)
+        count += 1
+
+    logger.info("Queued %s parse jobs for product=%s", count, product_id)
+
+    # После обновления — проверяем алерты
+    check_alerts_for_product.delay(product_id)
+    return count
+
+
+@shared_task(queue="light")
+def refresh_all_prices() -> int:
+    """Периодический запуск — пройтись по всем продуктам с офферами."""
+    product_ids = Offer.objects.values_list("product_id", flat=True).distinct()
+    total = 0
+
+    for pid in product_ids:
+        refresh_product.delay(pid)
+        total += 1
+
+    logger.info("Queued refresh for %s products", total)
+    return total
+
+
+@shared_task(queue="light")
+def check_alerts_for_product(product_id: int) -> int:
+    """Проверить и сработать пользовательские алерты по продукту."""
+    # Текущая минимальная цена
+    min_offer = (
+        Offer.objects.filter(product_id=product_id, is_available=True)
+        .order_by("price")
+        .first()
+    )
+
+    if not min_offer:
+        return 0
+
+    alerts = PriceAlert.objects.filter(
+        product_id=product_id, is_active=True, currency=min_offer.currency
+    )
+    triggered = alerts.filter(threshold_price__gte=min_offer.price)
+
+    count = 0
+    for alert in triggered:
+        try:
+            bot_url = "http://pricescan_bot:8000/send_alert"
+            payload = {
+                "user_id": alert.user_id,
+                "product_id": product_id,
+                "price": float(min_offer.price),
+                "url": min_offer.url,
+                "alert_id": alert.id,
+            }
+            requests.post(bot_url, json=payload, timeout=5)
+        except Exception as e:
+            logger.error(f"Failed to send alert to bot: {e}")
+        logger.info(
+            "ALERT TRIGGER user=%s product=%s price=%s url=%s",
+            alert.user_id,
+            product_id,
+            min_offer.price,
+            min_offer.url,
+        )
+        alert.last_triggered_at = timezone.now()
+        alert.is_active = False  # авто-выключение после срабатывания
+        alert.save(update_fields=["last_triggered_at", "is_active"])
+        count += 1
+
+    return count
 
 
 @shared_task(queue="heavy")
-def parse_playwright(shop_id: int, category_url: str = None, max_products: int = 50):
-    """
-    Парсинг через Playwright (для SPA сайтов)
-    Использует pricescan_playwright сервис
-    """
+def discover_products_for_shop(
+    shop_id: int, query: str = "настольная игра", limit: int = 1000
+) -> dict:
+    """Обнаружение новых товаров для конкретного магазина"""
     try:
-        shop = Shop.objects.get(id=shop_id, parser_type="playwright")
-        logger.info(f"Запуск Playwright парсинга для магазина {shop.name}")
-
-        # Вызываем Playwright парсер через HTTP API
-        async def _parse():
-            async with httpx.AsyncClient(timeout=300.0) as client:
-                if category_url:
-                    # Парсинг конкретной категории
-                    response = await client.post(
-                        "http://pricescan_playwright:8000/parse/search",
-                        json={
-                            "query": "настольные игры",
-                            "limit": max_products,
-                            "max_pages": 3,
-                            "max_products": max_products,
-                        },
-                    )
-                else:
-                    # Общий поиск
-                    response = await client.post(
-                        "http://pricescan_playwright:8000/parse/search",
-                        json={
-                            "query": "настольные игры",
-                            "limit": max_products,
-                            "max_pages": 2,
-                            "max_products": max_products,
-                        },
-                    )
-
-                response.raise_for_status()
-                return response.json()
-
-        result = asyncio.run(_parse())
-        products_data = result.get("products", [])
-
-        # Обрабатываем результаты
-        created_count = 0
-        updated_count = 0
-
-        for product_data in products_data:
-            try:
-                product, created = _create_or_update_product_from_parser_data(
-                    product_data, shop, "playwright"
-                )
-
-                if created:
-                    created_count += 1
-                else:
-                    updated_count += 1
-
-            except Exception as e:
-                logger.error(
-                    f"Ошибка обработки продукта {product_data.get('title', 'Unknown')}: {e}"
-                )
-                continue
-
-        logger.info(
-            f"Playwright парсинг завершен. Создано: {created_count}, Обновлено: {updated_count}"
-        )
-        return {"created": created_count, "updated": updated_count}
-
-    except Exception as e:
-        logger.error(f"Ошибка Playwright парсинга: {e}")
-        raise
-
-
-@shared_task(queue="light")
-def parse_bs4(shop_id: int, category_url: str = None, max_products: int = 50):
-    """
-    Парсинг через BeautifulSoup (для простых HTML сайтов)
-    Использует pricescan_parser сервис
-    """
-    try:
-        shop = Shop.objects.get(id=shop_id, parser_type="beautifulsoup")
-        logger.info(f"Запуск BeautifulSoup парсинга для магазина {shop.name}")
-
-        # Вызываем BeautifulSoup парсер через HTTP API
-        async def _parse():
-            async with httpx.AsyncClient(timeout=300.0) as client:
-                if category_url:
-                    response = await client.post(
-                        "http://pricescan_parser:8000/parse/search",
-                        json={
-                            "query": "настольные игры",
-                            "limit": max_products,
-                            "shop": "hobbygames",
-                        },
-                    )
-                else:
-                    response = await client.post(
-                        "http://pricescan_parser:8000/parse/search",
-                        json={
-                            "query": "настольные игры",
-                            "limit": max_products,
-                            "shop": "hobbygames",
-                        },
-                    )
-
-                response.raise_for_status()
-                return response.json()
-
-        result = asyncio.run(_parse())
-        products_data = result.get("products", [])
-
-        # Обрабатываем результаты
-        created_count = 0
-        updated_count = 0
-
-        for product_data in products_data:
-            try:
-                product, created = _create_or_update_product_from_parser_data(
-                    product_data, shop, "beautifulsoup"
-                )
-
-                if created:
-                    created_count += 1
-                else:
-                    updated_count += 1
-
-            except Exception as e:
-                logger.error(
-                    f"Ошибка обработки продукта {product_data.get('title', 'Unknown')}: {e}"
-                )
-                continue
-
-        logger.info(
-            f"BeautifulSoup парсинг завершен. Создано: {created_count}, Обновлено: {updated_count}"
-        )
-        return {"created": created_count, "updated": updated_count}
-
-    except Exception as e:
-        logger.error(f"Ошибка BeautifulSoup парсинга: {e}")
-        raise
-
-
-@shared_task(queue="light")
-def parse_api_json(
-    shop_id: int, query: str = "настольные игры", max_products: int = 50
-):
-    """
-    Парсинг через JSON API (для открытых API)
-    Использует pricescan_parser сервис
-    """
-    try:
-        shop = Shop.objects.get(id=shop_id, parser_type="api_json")
-        logger.info(f"Запуск API JSON парсинга для магазина {shop.name}")
-
-        # Вызываем API JSON парсер через HTTP API
-        async def _parse():
-            async with httpx.AsyncClient(timeout=300.0) as client:
-                response = await client.post(
-                    "http://pricescan_parser:8000/parse/search",
-                    json={"query": query, "limit": max_products, "shop": "wildberries"},
-                )
-                response.raise_for_status()
-                return response.json()
-
-        result = asyncio.run(_parse())
-        products_data = result.get("products", [])
-
-        # Обрабатываем результаты
-        created_count = 0
-        updated_count = 0
-
-        for product_data in products_data:
-            try:
-                product, created = _create_or_update_product_from_parser_data(
-                    product_data, shop, "api_json"
-                )
-
-                if created:
-                    created_count += 1
-                else:
-                    updated_count += 1
-
-            except Exception as e:
-                logger.error(
-                    f"Ошибка обработки продукта {product_data.get('title', 'Unknown')}: {e}"
-                )
-                continue
-
-        logger.info(
-            f"API JSON парсинг завершен. Создано: {created_count}, Обновлено: {updated_count}"
-        )
-        return {"created": created_count, "updated": updated_count}
-
-    except Exception as e:
-        logger.error(f"Ошибка API JSON парсинга: {e}")
-        raise
-
-
-# ========== ЗАДАЧИ ОБНОВЛЕНИЯ ЦЕН ==========
-
-
-@shared_task(queue="light")
-def refresh_product(product_id: int):
-    """
-    Обновление цен конкретного продукта во всех магазинах
-    """
-    try:
-        product = Product.objects.get(id=product_id)
-        logger.info(f"Обновление цен для продукта: {product.title}")
-
-        updated_count = 0
-
-        # Получаем все активные магазины
-        shops = Shop.objects.filter(is_active=True)
-
-        for shop in shops:
-            try:
-                if shop.parser_type == "playwright":
-                    # Обновляем через Playwright
-                    _update_product_price_playwright(product, shop)
-                elif shop.parser_type == "beautifulsoup":
-                    # Обновляем через BeautifulSoup
-                    _update_product_price_bs4(product, shop)
-                elif shop.parser_type == "api_json":
-                    # Обновляем через API JSON
-                    _update_product_price_api(product, shop)
-
-                updated_count += 1
-
-            except Exception as e:
-                logger.error(f"Ошибка обновления цены в магазине {shop.name}: {e}")
-                continue
-
-        logger.info(f"Обновление цен завершено. Обновлено магазинов: {updated_count}")
-        return {"updated_shops": updated_count}
-
-    except Product.DoesNotExist:
-        logger.error(f"Продукт с ID {product_id} не найден")
-        return {"error": "Product not found"}
-    except Exception as e:
-        logger.error(f"Ошибка обновления продукта {product_id}: {e}")
-        raise
-
-
-@shared_task(queue="light")
-def refresh_all_prices():
-    """
-    Массовое обновление цен всех продуктов (запускается по расписанию)
-    """
-    try:
-        logger.info("Запуск массового обновления цен")
-
-        # Получаем все активные магазины
-        shops = Shop.objects.filter(is_active=True)
-
-        total_updated = 0
-
-        for shop in shops:
-            try:
-                if shop.parser_type == "playwright":
-                    result = parse_playwright.delay(shop.id, max_products=100)
-                elif shop.parser_type == "beautifulsoup":
-                    result = parse_bs4.delay(shop.id, max_products=100)
-                elif shop.parser_type == "api_json":
-                    result = parse_api_json.delay(shop.id, max_products=100)
-                else:
-                    continue
-
-                total_updated += 1
-
-            except Exception as e:
-                logger.error(f"Ошибка запуска парсинга для магазина {shop.name}: {e}")
-                continue
-
-        logger.info(f"Запущено обновлений для {total_updated} магазинов")
-        return {"shops_updated": total_updated}
-
-    except Exception as e:
-        logger.error(f"Ошибка массового обновления цен: {e}")
-        raise
-
-
-# ========== ЗАДАЧИ МОНИТОРИНГА АЛЕРТОВ ==========
-
-
-@shared_task(queue="light")
-def check_alerts_for_product(product_id: int):
-    """
-    Проверка алертов для конкретного продукта
-    """
-    try:
-        product = Product.objects.get(id=product_id)
-        active_alerts = PriceAlert.objects.filter(
-            product=product, is_active=True
-        ).select_related("user", "shop")
-
-        if not active_alerts.exists():
-            return {"checked": 0, "triggered": 0}
-
-        triggered_count = 0
-
-        for alert in active_alerts:
-            try:
-                # Получаем текущие предложения по продукту
-                offers = Offer.objects.filter(product=product, is_available=True)
-
-                if alert.shop:
-                    offers = offers.filter(shop=alert.shop)
-
-                # Проверяем, есть ли предложения ниже порога
-                cheap_offers = offers.filter(price__lte=alert.threshold_price)
-
-                if cheap_offers.exists():
-                    # Алерт сработал
-                    _trigger_price_alert(alert, cheap_offers.first())
-                    triggered_count += 1
-
-            except Exception as e:
-                logger.error(f"Ошибка проверки алерта {alert.id}: {e}")
-                continue
-
-        logger.info(
-            f"Проверка алертов для продукта {product.title}: {triggered_count} сработало"
-        )
-        return {"checked": active_alerts.count(), "triggered": triggered_count}
-
-    except Product.DoesNotExist:
-        logger.error(f"Продукт с ID {product_id} не найден")
-        return {"error": "Product not found"}
-    except Exception as e:
-        logger.error(f"Ошибка проверки алертов для продукта {product_id}: {e}")
-        raise
-
-
-@shared_task(queue="light")
-def monitor_all_user_favorites():
-    """
-    Мониторинг всех пользовательских избранных (запускается по расписанию)
-    """
-    try:
-        logger.info("Запуск мониторинга пользовательских избранных")
-
-        # Получаем все активные алерты
-        active_alerts = PriceAlert.objects.filter(is_active=True).select_related(
-            "product", "user", "shop"
-        )
-
-        triggered_count = 0
-
-        for alert in active_alerts:
-            try:
-                # Получаем текущие предложения по продукту
-                offers = Offer.objects.filter(product=alert.product, is_available=True)
-
-                if alert.shop:
-                    offers = offers.filter(shop=alert.shop)
-
-                # Проверяем, есть ли предложения ниже порога
-                cheap_offers = offers.filter(price__lte=alert.threshold_price)
-
-                if cheap_offers.exists():
-                    # Алерт сработал
-                    _trigger_price_alert(alert, cheap_offers.first())
-                    triggered_count += 1
-
-            except Exception as e:
-                logger.error(f"Ошибка проверки алерта {alert.id}: {e}")
-                continue
-
-        logger.info(f"Мониторинг завершен. Сработало алертов: {triggered_count}")
-        return {"checked": active_alerts.count(), "triggered": triggered_count}
-
-    except Exception as e:
-        logger.error(f"Ошибка мониторинга алертов: {e}")
-        raise
-
-
-# ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==========
-
-
-def _create_or_update_product_from_parser_data(
-    product_data: Dict, shop: Shop, parser_type: str
-) -> tuple[Product, bool]:
-    """
-    Создание или обновление продукта из данных парсера
-    """
-    with transaction.atomic():
-        # Извлекаем данные продукта
-        title = product_data.get("title", "").strip()
-        if not title:
-            raise ValueError("Название продукта не может быть пустым")
-
-        # Создаем или получаем автора
-        author_name = product_data.get("manufacturer", "Неизвестный автор")
-        author, _ = Author.objects.get_or_create(
-            name=author_name, defaults={"name": author_name}
-        )
-
-        # Создаем или получаем категорию
-        category_name = "Настольные игры"  # По умолчанию
-        category, _ = Category.objects.get_or_create(
-            name=category_name, defaults={"name": category_name}
-        )
-
-        # Создаем или получаем издателя (если есть)
-        publisher = None
-        if product_data.get("publisher"):
-            publisher, _ = Publisher.objects.get_or_create(
-                name=product_data["publisher"],
-                defaults={"name": product_data["publisher"]},
+        service = UniversalParserService()
+        result = service.discover_products(shop_id, query, limit)
+
+        if result["ok"]:
+            logger.info(
+                f"Shop {shop_id}: found {result['products_found']} products, "
+                f"created {result['products_created']} new products, "
+                f"created {result['offers_created']} new offers"
             )
 
-        # Парсим дополнительные данные
-        players = product_data.get("players", "")
-        min_players, max_players = _parse_players_range(players)
-
-        play_time = product_data.get("play_time", "")
-        playtime_min = _parse_playtime(play_time)
-
-        age = product_data.get("age", "")
-        min_age = _parse_age(age)
-
-        # Создаем или обновляем продукт
-        product, created = Product.objects.get_or_create(
-            title=title,
-            defaults={
-                "author": author,
-                "publisher": publisher,
-                "category": category,
-                "description": product_data.get("description", ""),
-                "image_url": product_data.get("image_url", ""),
-                "min_players": min_players,
-                "max_players": max_players,
-                "playtime_min": playtime_min,
-                "min_age": min_age,
-                "external_id": product_data.get("external_id", ""),
-                "brand": product_data.get("manufacturer", ""),
-            },
-        )
-
-        # Создаем или обновляем предложение
-        price = product_data.get("price_rub")
-        if price and price > 0:
-            offer, offer_created = Offer.objects.get_or_create(
-                product=product,
-                shop=shop,
-                defaults={
-                    "price": Decimal(str(price)),
-                    "currency": "RUB",
-                    "is_available": True,
-                    "url": product_data.get("url", ""),
-                },
-            )
-
-            if not offer_created:
-                # Обновляем существующее предложение
-                old_price = offer.price
-                offer.price = Decimal(str(price))
-                offer.is_available = True
-                offer.url = product_data.get("url", "")
-                offer.save()
-
-                # Сохраняем историю цены, если она изменилась
-                if old_price != offer.price:
-                    PriceHistory.objects.create(
-                        offer=offer, price=old_price, currency="RUB"
-                    )
-
-        return product, created
-
-
-def _parse_players_range(players_str: str) -> tuple[Optional[int], Optional[int]]:
-    """Парсинг диапазона игроков '1-2' -> (1, 2)"""
-    if not players_str:
-        return None, None
-
-    try:
-        if "-" in players_str:
-            parts = players_str.split("-")
-            if len(parts) == 2:
-                return int(parts[0].strip()), int(parts[1].strip())
-        elif players_str.isdigit():
-            val = int(players_str)
-            return val, val
-    except (ValueError, IndexError):
-        pass
-
-    return None, None
-
-
-def _parse_playtime(playtime_str: str) -> Optional[int]:
-    """Парсинг времени игры '60-120' -> 60 (минимальное время)"""
-    if not playtime_str:
-        return None
-
-    try:
-        if "-" in playtime_str:
-            parts = playtime_str.split("-")
-            if len(parts) == 2:
-                return int(parts[0].strip())
-        elif playtime_str.isdigit():
-            return int(playtime_str)
-    except (ValueError, IndexError):
-        pass
-
-    return None
-
-
-def _parse_age(age_str: str) -> Optional[int]:
-    """Парсинг возраста '14+' -> 14"""
-    if not age_str:
-        return None
-
-    try:
-        # Убираем '+' и парсим число
-        age_str = age_str.replace("+", "").strip()
-        if age_str.isdigit():
-            return int(age_str)
-    except ValueError:
-        pass
-
-    return None
-
-
-def _update_product_price_playwright(product: Product, shop: Shop):
-    """Обновление цены через Playwright"""
-    # Здесь можно реализовать поиск конкретного продукта через Playwright API
-    pass
-
-
-def _update_product_price_bs4(product: Product, shop: Shop):
-    """Обновление цены через BeautifulSoup"""
-    # Здесь можно реализовать поиск конкретного продукта через BS4 API
-    pass
-
-
-def _update_product_price_api(product: Product, shop: Shop):
-    """Обновление цены через API JSON"""
-    # Здесь можно реализовать поиск конкретного продукта через API JSON
-    pass
-
-
-def _trigger_price_alert(alert: PriceAlert, offer: Offer):
-    """Срабатывание алерта о цене"""
-    try:
-        # Обновляем время последнего срабатывания
-        alert.last_triggered_at = timezone.now()
-        alert.save(update_fields=["last_triggered_at"])
-
-        # Здесь можно добавить отправку уведомления пользователю
-        # через Telegram бот или email
-
-        logger.info(
-            f"Алерт сработал для пользователя {alert.user.id}: {offer.product.title} - {offer.price} руб. в {offer.shop.name}"
-        )
+        return result
 
     except Exception as e:
-        logger.error(f"Ошибка срабатывания алерта {alert.id}: {e}")
-
-
-# ========== ЗАДАЧИ ДЛЯ СТАРЫХ НАЗВАНИЙ (совместимость) ==========
+        logger.error(f"Discover products for shop {shop_id} error: {e}")
+        return {"ok": False, "error": str(e)}
 
 
 @shared_task(queue="light")
-def bulk_parse_hobbygames():
-    """Совместимость со старым названием задачи"""
+def update_shop_products(shop_id: int) -> dict:
+    """Обновление всех товаров конкретного магазина"""
     try:
-        shop = Shop.objects.filter(parser_type="beautifulsoup", is_active=True).first()
-        if shop:
-            return parse_bs4.delay(shop.id, max_products=100)
-        return {"error": "No active BeautifulSoup shop found"}
+        shop = Shop.objects.get(id=shop_id)
+        offers = Offer.objects.filter(shop=shop, is_available=True)
+
+        count = 0
+        for offer in offers:
+            parse_product_universal.delay(offer.product.id, shop.id, offer.url)
+            count += 1
+
+        logger.info(f"Queued {count} products for shop {shop.name}")
+        return {"ok": True, "queued": count}
+
     except Exception as e:
-        logger.error(f"Ошибка bulk_parse_hobbygames: {e}")
-        raise
+        logger.error(f"Update shop products error: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+@shared_task(queue="light")
+def health_check_parsers() -> dict:
+    """Проверка здоровья всех парсеров"""
+    service = UniversalParserService()
+    results = {}
+
+    for parser_type, endpoint in service.parser_endpoints.items():
+        try:
+            response = requests.get(f"{endpoint}/health", timeout=10)
+            results[parser_type] = {
+                "status": "ok" if response.status_code == 200 else "error",
+                "response_time": response.elapsed.total_seconds(),
+                "status_code": response.status_code,
+            }
+        except Exception as e:
+            results[parser_type] = {"status": "error", "error": str(e)}
+
+    return {"ok": True, "parsers": results}

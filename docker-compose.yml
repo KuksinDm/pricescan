@@ -60,7 +60,7 @@ services:
 
   celery_worker_pricescan:
     build: ./pricescan_api
-    image: myzos/web_pricescan:latest
+    image: myzos/celery_worker_pricescan:latest
     env_file: [.env]
     depends_on: {redis: {condition: service_started}, db_pricescan: {condition: service_started}}
     command: celery -A config worker --loglevel=info -Q light,heavy --concurrency=2
@@ -69,7 +69,7 @@ services:
 
   celery_beat_pricescan:
     build: ./pricescan_api
-    image: myzos/web_pricescan:latest
+    image: myzos/celery_beat_pricescan:latest 
     env_file: [.env]
     depends_on: {redis: {condition: service_started}}
     command: celery -A config beat --loglevel=info
@@ -79,6 +79,8 @@ services:
   pricescan_parser:
     build: ./pricescan_parser
     image: myzos/pricescan_parser:latest
+    volumes:
+      - ./shared_models:/app/shared_models 
     ports:
       - "8001:8000"
     networks:
@@ -96,6 +98,8 @@ services:
   pricescan_playwright:
     build: ./pricescan_playwright
     image: myzos/pricescan_playwright:latest
+    volumes:
+      - ./shared_models:/app/shared_models 
     ports:
       - "8002:8000"
     networks:

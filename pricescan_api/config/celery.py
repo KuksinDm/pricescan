@@ -18,8 +18,8 @@ app.conf.beat_schedule = {
         "task": "product.tasks.refresh_all_prices",
         "schedule": crontab(hour="*/12"),
     },
-    "bulk-parse-hobbygames-every-3-days": {
-        "task": "product.tasks.bulk_parse_hobbygames", 
+    "bulk-parse-all-shops-every-3-days": {
+        "task": "product.tasks.bulk_parse_all_shops", 
         "schedule": crontab(hour=2, minute=0, day_of_week=1),
     },
     "monitor-favorites-every-3h": {
@@ -27,9 +27,8 @@ app.conf.beat_schedule = {
         "schedule": crontab(minute=0, hour="*/3"),
 },
 }
-
 CELERY_TASK_ROUTES = {
-    "product.tasks.parse_playwright": {"queue": "heavy"},
-    "product.tasks.parse_bs4": {"queue": "light"},
-    "product.tasks.parse_api_json": {"queue": "light"},
+    "product.tasks.parse_product_universal": {"queue": "light"},
+    "product.tasks.discover_products_for_shop": {"queue": "heavy"},
+    "product.tasks.bulk_parse_all_shops": {"queue": "heavy"},
 }

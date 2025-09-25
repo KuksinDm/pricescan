@@ -5,8 +5,8 @@ from unidecode import unidecode
 
 
 class Category(models.Model):
-    name = models.CharField(max_length=100, unique=True)
-    slug = models.SlugField(unique=True)
+    name = models.CharField(max_length=200, unique=True)
+    slug = models.SlugField(max_length=200, unique=True)
 
     def save(self, *args, **kwargs):
         if not self.slug:
@@ -19,7 +19,7 @@ class Category(models.Model):
 
 class Author(models.Model):
     name = models.CharField(max_length=200)
-    slug = models.SlugField()
+    slug = models.SlugField(max_length=200)
 
     def save(self, *args, **kwargs):
         if not self.slug:
@@ -32,7 +32,7 @@ class Author(models.Model):
 
 class Publisher(models.Model):
     name = models.CharField(max_length=200)
-    slug = models.SlugField()
+    slug = models.SlugField(max_length=200)
 
     def save(self, *args, **kwargs):
         if not self.slug:
@@ -53,13 +53,12 @@ class Product(models.Model):
     category = models.ForeignKey(Category, on_delete=models.CASCADE)
 
     # Идентификаторы для поиска
-    ean = models.CharField(max_length=20, unique=True, null=True, blank=True)
-    brand = models.CharField(max_length=100, null=True, blank=True)  # ID от парсера
-    slug = models.SlugField(unique=True)
+    ean = models.CharField(max_length=50, null=True, blank=True)
+    brand = models.CharField(max_length=100, null=True, blank=True)
+    slug = models.SlugField(max_length=200, unique=True)
 
     # Метаданные
-    description = models.TextField(blank=True)
-    image_url = models.URLField(blank=True)
+    description = models.TextField(null=True, blank=True)
     min_players = models.PositiveIntegerField(null=True, blank=True)
     max_players = models.PositiveIntegerField(null=True, blank=True)
     playtime_min = models.PositiveIntegerField(null=True, blank=True)
