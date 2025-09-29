@@ -43,16 +43,28 @@ class BeautifulSoupParser:
     def parse_catalog(self, shop_url: str, limit: int = 500) -> List[ProductData]:
         """Парсинг каталога магазина"""
         try:
+            self.logger.info(
+                f"BeautifulSoup parse_catalog called: shop_url={shop_url}, limit={limit}"
+            )
+
             if not shop_url:
                 self.logger.error("shop_url не может быть пустым")
                 return []
 
+            self.logger.info(f"Making request to: {shop_url}")
             time.sleep(0.5)  # Задержка
             response = self.session.get(shop_url, timeout=30)
             response.raise_for_status()
 
+            self.logger.info(
+                f"Response status: {response.status_code}, content length: {len(response.content)}"
+            )
+
             soup = BeautifulSoup(response.content, "lxml")
-            return self._extract_products_from_category(soup, limit, shop_url)
+            products = self._extract_products_from_category(soup, limit, shop_url)
+
+            self.logger.info(f"Extracted {len(products)} products from catalog")
+            return products
         except Exception as e:
             self.logger.error(f"Ошибка при парсинге каталога: {e}")
             return []
@@ -199,6 +211,8 @@ class BeautifulSoupParser:
 
         return None
 
+    # В pricescan_parser/parser/beautifulsoup_parser.py
+
     def _extract_products_from_category(
         self, soup: BeautifulSoup, limit: int, shop_url: str = None
     ) -> List[ProductData]:
@@ -221,6 +235,7 @@ class BeautifulSoupParser:
         for sel in link_selectors:
             links = soup.select(sel)
             if links:
+                self.logger.info(f"Found {len(links)} links with selector: {sel}")
                 break
 
         # 2) Если ничего не нашли — пробуем старые карточки целиком
@@ -232,8 +247,13 @@ class BeautifulSoupParser:
                 link = card.select_one("a[href]")
                 if link:
                     links.append(link)
+            self.logger.info(f"Found {len(links)} links from product cards")
 
-        # Парсим найденные ссылки
+        if not links:
+            self.logger.error("No product links found on page")
+            return products
+
+        # Парсим найденные ссылки (как в примере ghbs)
         for a in links[:limit]:
             title = (a.get_text(strip=True) if a else None) or ""
             url = (a.get("href") if a else None) or ""
@@ -244,23 +264,7 @@ class BeautifulSoupParser:
             if url.startswith("/"):
                 url = "https://hobbygames.ru" + url
 
-            # НОВОЕ: Всегда заходим на страницу товара для получения полной информации
-            try:
-                time.sleep(0.5)  # Задержка между запросами
-                product_response = self.session.get(url, timeout=30)
-                product_response.raise_for_status()
-                product_soup = BeautifulSoup(product_response.content, "lxml")
-
-                # Парсим полную информацию со страницы товара
-                full_product = self._extract_product_data(product_soup, url)
-                if full_product:
-                    products.append(full_product)
-                    self.logger.info(f"Успешно спарсил товар: {full_product.title}")
-                    continue
-            except Exception as e:
-                self.logger.warning(f"Не удалось парсить страницу товара {url}: {e}")
-
-            # Если не удалось получить полную информацию, используем базовую с карточки
+            # Получаем базовую информацию с карточки (как в примере ghbs)
             card = a.find_parent(class_=lambda c: c and "product-card" in c) or a.parent
             price_rub = None
             if card:
@@ -270,8 +274,8 @@ class BeautifulSoupParser:
                 if price_el:
                     price_rub = self._to_int(price_el.get_text(" ", strip=True))
 
-            # Создаем базовый ProductData как fallback
-            product = ProductData(
+            # Создаем базовый ProductData (как в примере ghbs)
+            base_product = ProductData(
                 title=title,
                 url=url,
                 price_rub=price_rub,
@@ -282,9 +286,45 @@ class BeautifulSoupParser:
                 age=None,
                 description=None,
             )
-            products.append(product)
-            self.logger.warning(f"Использован базовый парсинг для товара: {title}")
 
+            # Дополняем информацией со страницы товара (если нужно)
+            try:
+                time.sleep(0.5)  # Задержка между запросами
+                product_response = self.session.get(url, timeout=30)
+                product_response.raise_for_status()
+                product_soup = BeautifulSoup(product_response.content, "lxml")
+
+                # Получаем полную информацию со страницы товара
+                full_product = self._extract_product_data(product_soup, url)
+                if full_product:
+                    # Объединяем базовую и полную информацию (как в примере ghbs)
+                    merged_product = ProductData(
+                        title=full_product.title or base_product.title,
+                        url=url,
+                        price_rub=full_product.price_rub or base_product.price_rub,
+                        manufacturer=full_product.manufacturer,
+                        year=full_product.year,
+                        players=full_product.players,
+                        play_time=full_product.play_time,
+                        age=full_product.age,
+                        description=full_product.description,
+                    )
+                    products.append(merged_product)
+                    self.logger.info(
+                        f"Successfully parsed product: {merged_product.title}"
+                    )
+                else:
+                    # Если не удалось получить полную информацию, используем базовую
+                    products.append(base_product)
+                    self.logger.warning(f"Used basic parsing for: {title}")
+
+            except Exception as e:
+                self.logger.warning(f"Failed to parse product page {url}: {e}")
+                # Используем базовую информацию
+                products.append(base_product)
+                self.logger.warning(f"Used basic parsing for: {title}")
+
+        self.logger.info(f"Extracted {len(products)} products from catalog")
         return products
 
     def _to_int(self, text: str) -> Optional[int]:
@@ -357,201 +397,3 @@ class BeautifulSoupParser:
             return cleaned
 
         return None
-
-
-# import logging
-# import re
-# from typing import List, Optional
-# from urllib.parse import urljoin
-
-# import requests
-# from bs4 import BeautifulSoup
-
-# from shared_models import ProductData
-
-
-# class BeautifulSoupParser:
-#     """Универсальный BeautifulSoup парсер для HTML сайтов"""
-
-#     def __init__(self, base_url: str, max_retries: int = 3):
-#         self.base_url = base_url
-#         self.max_retries = max_retries
-#         self.logger = logging.getLogger(__name__)
-#         self.session = requests.Session()
-#         self.session.headers.update({
-#             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-#         })
-
-#     def parse_product(self, url: str) -> Optional[ProductData]:
-#         """Парсинг одного товара"""
-#         try:
-#             response = self.session.get(url, timeout=10)
-#             response.raise_for_status()
-
-#             soup = BeautifulSoup(response.content, "html.parser")
-#             return self._extract_product_data(soup, url)
-
-#         except Exception as e:
-#             self.logger.error(f"Ошибка при парсинге {url}: {e}")
-#             return None
-
-#     def parse_catalog(self, shop_url: str, limit: int = 100) -> List[ProductData]:
-#         """Парсинг каталога магазина"""
-#         try:
-#             if not shop_url:
-#                 self.logger.error("shop_url не может быть пустым")
-#                 return []
-
-#             # Используем переданный shop_url
-#             response = self.session.get(shop_url, timeout=10)
-#             response.raise_for_status()
-
-#             soup = BeautifulSoup(response.content, "html.parser")
-#             return self._extract_products_from_category(soup, limit, shop_url)
-#         except Exception as e:
-#             self.logger.error(f"Ошибка при парсинге каталога: {e}")
-#             return []
-
-#     def _extract_product_data(
-#         self, soup: BeautifulSoup, url: str
-#     ) -> Optional[ProductData]:
-#         """Извлечение данных товара со страницы"""
-#         try:
-#             # Название
-#             title_element = soup.find("h1")
-#             title = title_element.get_text(strip=True) if title_element else ""
-
-#             if not title:
-#                 return None
-
-#             # Цена
-#             price_rub = self._extract_price(soup)
-
-#             # Характеристики
-#             characteristics = self._extract_characteristics(soup)
-
-#             # Описание
-#             description = self._extract_description(soup)
-
-#             return ProductData(
-#                 title=title,
-#                 url=url,
-#                 price_rub=price_rub,
-#                 manufacturer=characteristics.get("manufacturer"),
-#                 year=characteristics.get("year"),
-#                 players=characteristics.get("players"),
-#                 play_time=characteristics.get("play_time"),
-#                 age=characteristics.get("age"),
-#                 description=description,
-#             )
-
-#         except Exception as e:
-#             self.logger.error(f"Ошибка при извлечении данных товара: {e}")
-#             return None
-
-#     def _extract_price(self, soup: BeautifulSoup) -> Optional[int]:
-#         """Извлечение цены товара"""
-#         price_selectors = [
-#             ".price",
-#             ".cost",
-#             ".amount",
-#             ".product-price",
-#             "[data-price]",
-#             ".current-price",
-#             ".main-price",
-#         ]
-
-#         for selector in price_selectors:
-#             price_element = soup.select_one(selector)
-#             if price_element:
-#                 price_text = price_element.get_text(strip=True)
-#                 return self._extract_numbers_from_text(price_text)
-
-#         return None
-
-#     def _extract_characteristics(self, soup: BeautifulSoup) -> dict:
-#         """Извлечение характеристик товара"""
-#         characteristics = {}
-
-#         # Ищем таблицы с характеристиками
-#         tables = soup.find_all("table")
-#         for table in tables:
-#             rows = table.find_all("tr")
-#             for row in rows:
-#                 cells = row.find_all(["td", "th"])
-#                 if len(cells) >= 2:
-#                     key = cells[0].get_text(strip=True).lower()
-#                     value = cells[1].get_text(strip=True)
-
-#                     if "производитель" in key or "издатель" in key:
-#                         characteristics["manufacturer"] = value
-#                     elif "год" in key:
-#                         year_match = re.search(r"(\d{4})", value)
-#                         if year_match:
-#                             characteristics["year"] = int(year_match.group(1))
-#                     elif "игрок" in key and "возраст" not in key:
-#                         characteristics["players"] = value
-#                     elif "время" in key or "минут" in key:
-#                         characteristics["play_time"] = value
-#                     elif "возраст" in key:
-#                         characteristics["age"] = value
-
-#         return characteristics
-
-#     def _extract_description(self, soup: BeautifulSoup) -> Optional[str]:
-#         """Извлечение описания товара"""
-#         desc_selectors = [
-#             ".description",
-#             ".product-description",
-#             ".about",
-#             ".content",
-#             ".text",
-#             ".game-description",
-#         ]
-
-#         for selector in desc_selectors:
-#             desc_element = soup.select_one(selector)
-#             if desc_element:
-#                 description = desc_element.get_text(strip=True)
-#                 if len(description) > 100:
-#                     return description[:600]  # Ограничиваем длину
-
-#         return None
-
-#     def _extract_numbers_from_text(self, text: str) -> Optional[int]:
-#         """Извлечение первого числа из текста"""
-#         numbers = re.findall(r"\d+", text.replace(" ", ""))
-#         return int(numbers[0]) if numbers else None
-
-#     def _extract_products_from_category(
-#         self, soup: BeautifulSoup, limit: int, shop_url: str = None
-#     ) -> List[ProductData]:
-#         """Извлечение товаров из категории"""
-#         products = []
-
-#         if not shop_url:
-#             self.logger.error("shop_url не может быть пустым")
-#             return products
-
-#         # Ищем ссылки на товары
-#         product_links = []
-#         links = soup.find_all("a", href=True)
-
-#         for link in links:
-#             href = link["href"]
-#             # Более гибкий поиск ссылок на товары
-#             if any(
-#                 pattern in href
-#                 for pattern in ["/product/", "/game/", "/nastolnaya-igra-", "/igra-"]
-#             ):
-#                 full_url = urljoin(shop_url, href)
-#                 if full_url not in product_links:
-#                     product_links.append(full_url)
-
-#         # Парсим товары
-#         for url in product_links[:limit]:
-#             product = self.parse_product(url)
-#             if product:
-#                 products.append(product)
-
-#         return products

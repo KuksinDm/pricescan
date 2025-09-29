@@ -1,3 +1,3 @@
-from .parser import ApiJsonParser, BeautifulSoupParser
+from .parser import BeautifulSoupParser
 
-__all__ = ["ApiJsonParser", "BeautifulSoupParser"]
+__all__ = ["BeautifulSoupParser"]

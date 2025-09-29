@@ -14,8 +14,10 @@ class ParserService:
         self.parser_endpoints = {
             "beautifulsoup": "http://pricescan_parser:8000",
             "playwright": "http://pricescan_playwright:8000",
-            "api_json": "http://pricescan_parser:8000",
         }
+        logger.info(
+            f"ParserService initialized with endpoints: {self.parser_endpoints}"
+        )
 
     def parse_product(
         self, parser_type: str, url: str, shop_name: str, shop_url: str
@@ -68,32 +70,59 @@ class ParserService:
     ) -> dict:
         """Парсинг каталога через внешний сервис"""
         try:
-            endpoint = self.parser_endpoints.get(parser_type)
-            if not endpoint:
-                return {"ok": False, "error": f"Unsupported parser type: {parser_type}"}
-
-            response = requests.post(
-                f"{endpoint}/parse/catalog",  # ✅ ПРАВИЛЬНО!
-                json={
-                    "shop_url": shop_url,  # ✅ ПРАВИЛЬНО!
-                    "limit": limit,
-                    "shop_name": shop_name,
-                },
-                timeout=60,
+            logger.info(
+                f"parse_catalog called: parser_type={parser_type}, shop_url={shop_url}, limit={limit}, shop_name={shop_name}"
             )
 
+            endpoint = self.parser_endpoints.get(parser_type)
+            if not endpoint:
+                logger.error(f"Unsupported parser type: {parser_type}")
+                return {"ok": False, "error": f"Unsupported parser type: {parser_type}"}
+
+            logger.info(f"Sending request to {endpoint}/parse/catalog")
+
+            # Добавляем таймаут и обработку ошибок
+            try:
+                response = requests.post(
+                    f"{endpoint}/parse/catalog",
+                    json={
+                        "shop_url": shop_url,
+                        "limit": limit,
+                        "shop_name": shop_name,
+                        "parser_type": parser_type,
+                    },
+                    timeout=300,
+                )
+                logger.info(f"Response status: {response.status_code}")
+                logger.info(
+                    f"Response content: {response.text[:500]}"
+                )  # Первые 500 символов
+
+            except requests.exceptions.ConnectionError as e:
+                logger.error(f"Connection error to {endpoint}: {e}")
+                return {"ok": False, "error": f"Connection error: {e}"}
+            except requests.exceptions.Timeout as e:
+                logger.error(f"Timeout error to {endpoint}: {e}")
+                return {"ok": False, "error": f"Timeout error: {e}"}
+            except Exception as e:
+                logger.error(f"Request error to {endpoint}: {e}")
+                return {"ok": False, "error": f"Request error: {e}"}
+
             if response.status_code != 200:
+                logger.error(f"Parser API failed: {response.status_code}")
                 return {
                     "ok": False,
                     "error": f"Parser API failed: {response.status_code}",
                 }
 
             catalog_result = response.json()
-            return self._process_catalog_response(catalog_result)  # ✅ ПРАВИЛЬНО!
+            logger.info(
+                f"Catalog result: success={catalog_result.get('success')}, total_found={catalog_result.get('total_found')}"
+            )
+            return self._process_catalog_response(catalog_result)
 
-        except requests.RequestException as e:
-            return {"ok": False, "error": f"Request failed: {str(e)}"}
         except Exception as e:
+            logger.error(f"Catalog parse failed: {str(e)}")
             return {"ok": False, "error": f"Catalog parse failed: {str(e)}"}
 
     def _process_parser_response(self, result: Dict) -> Dict:

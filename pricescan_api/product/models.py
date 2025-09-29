@@ -93,7 +93,6 @@ class Shop(models.Model):
         choices=[
             ("playwright", "Playwright"),
             ("beautifulsoup", "BeautifulSoup"),
-            ("api_json", "API JSON"),
         ],
     )
     is_active = models.BooleanField(default=True)

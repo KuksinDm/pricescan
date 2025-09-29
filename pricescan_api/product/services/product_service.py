@@ -40,10 +40,16 @@ class ProductService:
 
     def create_or_update_product_from_data(self, product_data: Dict, shop) -> Dict:
         """Создание или обновление товара из данных парсера"""
+        logger.info("=== PRODUCT SERVICE: Creating/updating product ===")
+        logger.info(f"Product data: {product_data}")
+
         with transaction.atomic():
             title = product_data.get("title", "").strip()
             if not title:
+                logger.error("Product title is missing")
                 raise ValueError("Product title is required")
+
+            logger.info(f"Processing product: {title}")
 
             # Поиск по названию или внешнему ID
             product = None
@@ -51,17 +57,25 @@ class ProductService:
                 product = Product.objects.filter(
                     external_id=product_data["external_id"]
                 ).first()
+                logger.info(f"Found product by external_id: {product}")
 
             if not product:
                 product = Product.objects.filter(title=title).first()
+                logger.info(f"Found product by title: {product}")
 
             created = False
             if not product:
+                logger.info("Creating new product")
                 # Создаем новый товар
-                author = self._get_or_create_author(product_data.get("Неизвестно"))
+                author = self._get_or_create_author("Неизвестно")
                 category = self._get_or_create_category("Настольные игры")
                 publisher = self._get_or_create_publisher(
                     product_data.get("manufacturer", "Неизвестно")
+                )
+
+                logger.info(
+                    f"Created author: {author}, category: "
+                    f"{category}, publisher: {publisher}"
                 )
 
                 product, created = Product.objects.update_or_create(
@@ -77,18 +91,22 @@ class ProductService:
                         "playtime_min": self._parse_playtime(
                             product_data.get("play_time")
                         ),
-                        "year": self._parse_year(product_data.get("year")),
+                        # "year": self._parse_year(product_data.get("year")),
                     },
                 )
+
+                logger.info(f"Product created/updated: {product}, created: {created}")
 
                 # Устанавливаем диапазон игроков
                 players_range = self._parse_players_range(product_data.get("players"))
                 if players_range:
                     product.min_players, product.max_players = players_range
                     product.save(update_fields=["min_players", "max_players"])
+                    logger.info(f"Set players range: {players_range}")
 
                 created = True
 
+            logger.info(f"Final result: created={created}, product_id={product.id}")
             return {
                 "created": created,
                 "product_id": product.id,
@@ -186,19 +204,19 @@ class ProductService:
         except (ValueError, IndexError):
             return None
 
-    def _parse_year(self, year_data: any) -> Optional[int]:
-        """Парсинг года выпуска"""
-        if not year_data:
-            return None
+    # def _parse_year(self, year_data: any) -> Optional[int]:
+    #     """Парсинг года выпуска"""
+    #     if not year_data:
+    #         return None
 
-        if isinstance(year_data, int):
-            return year_data
+    #     if isinstance(year_data, int):
+    #         return year_data
 
-        if isinstance(year_data, str):
-            import re
+    #     if isinstance(year_data, str):
+    #         import re
 
-            years = re.findall(r"\b(19|20)\d{2}\b", year_data)
-            if years:
-                return int(max(years))
+    #         years = re.findall(r"\b(19|20)\d{2}\b", year_data)
+    #         if years:
+    #             return int(max(years))
 
-        return None
+    #     return None

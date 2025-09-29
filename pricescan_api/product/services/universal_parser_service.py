@@ -66,15 +66,25 @@ class UniversalParserService:
     ) -> Dict:
         """Обнаружение новых товаров"""
         try:
+            logger.info(
+                f"discover_products called: shop_id={shop_id}, query={query}, limit={limit}"
+            )
             shop = Shop.objects.get(id=shop_id)
             shop_url = shop.domain
+            logger.info(
+                f"Shop found: {shop.name}, parser_type={shop.parser_type}, domain={shop.domain}"
+            )
 
             # Парсинг каталога через парсер
+            logger.info(
+                f"Calling parser_service.parse_catalog with: parser_type={shop.parser_type}, shop_url={shop_url}, limit={limit}, shop_name={shop.name}"
+            )
             catalog_result = self.parser_service.parse_catalog(
                 shop.parser_type, shop_url, limit, shop.name
             )
-
+            logger.info(f"Catalog result: {catalog_result}")
             if not catalog_result.get("ok", False):
+                logger.error(f"Catalog parsing failed: {catalog_result}")
                 return catalog_result
 
             # Создаем товары
@@ -120,11 +130,3 @@ class UniversalParserService:
                 stats["errors"] += 1
 
         return stats
-
-    def _get_shop_base_url(self, shop_name: str) -> str:
-        """Получение базового URL магазина"""
-        try:
-            shop = Shop.objects.get(name=shop_name)
-            return shop.domain
-        except Shop.DoesNotExist:
-            return ""

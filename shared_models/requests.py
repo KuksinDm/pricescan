@@ -21,5 +21,5 @@ class CatalogRequest(BaseModel):
     limit: int = Field(default=100, description="Максимальное количество товаров")
     shop_name: str = Field(default="Unknown", description="Название магазина")
     parser_type: Optional[str] = Field(
-        None, description="Тип парсера: beautifulsoup, playwright, api_json"
+        None, description="Тип парсера: beautifulsoup, playwright"
     )

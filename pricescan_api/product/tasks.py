@@ -252,7 +252,8 @@ def health_check_parsers() -> dict:
     service = UniversalParserService()
     results = {}
 
-    for parser_type, endpoint in service.parser_endpoints.items():
+    # Исправляем обращение к parser_endpoints
+    for parser_type, endpoint in service.parser_service.parser_endpoints.items():
         try:
             response = requests.get(f"{endpoint}/health", timeout=10)
             results[parser_type] = {

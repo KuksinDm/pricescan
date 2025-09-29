@@ -6,7 +6,7 @@ from django.db import transaction
 
 from product.models import Shop
 
-CHOICES = {"playwright", "beautifulsoup", "api_json"}
+CHOICES = {"playwright", "beautifulsoup"}
 
 
 def to_bool(v: str) -> bool:
