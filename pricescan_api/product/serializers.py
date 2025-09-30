@@ -39,21 +39,16 @@ class ShopSerializer(serializers.ModelSerializer):
 class OfferSerializer(serializers.ModelSerializer):
     shop = ShopSerializer(read_only=True)
     product_title = serializers.CharField(source="product.title", read_only=True)
-    product_author = serializers.CharField(source="product.author.name", read_only=True)
-    product_publisher = serializers.CharField(
-        source="product.publisher.name", read_only=True
-    )
-    product_category = serializers.CharField(
-        source="product.category.name", read_only=True
-    )
+    # ManyToMany поля - показываем всех авторов/издателей/категории
+    product_authors = serializers.SerializerMethodField()
+    product_publishers = serializers.SerializerMethodField()
+    product_categories = serializers.SerializerMethodField()
     min_players = serializers.IntegerField(source="product.min_players", read_only=True)
     max_players = serializers.IntegerField(source="product.max_players", read_only=True)
     playtime_min = serializers.IntegerField(
         source="product.playtime_min", read_only=True
     )
     min_age = serializers.IntegerField(source="product.min_age", read_only=True)
-    description = serializers.CharField(source="product.description", read_only=True)
-    image_url = serializers.URLField(source="product.image_url", read_only=True)
 
     class Meta:
         model = Offer
@@ -61,15 +56,13 @@ class OfferSerializer(serializers.ModelSerializer):
             "id",
             "product",
             "product_title",
-            "product_author",
-            "product_publisher",
-            "product_category",
+            "product_authors",
+            "product_publishers",
+            "product_categories",
             "min_players",
             "max_players",
             "playtime_min",
             "min_age",
-            "description",
-            "image_url",
             "price",
             "currency",
             "is_available",
@@ -77,6 +70,18 @@ class OfferSerializer(serializers.ModelSerializer):
             "url",
             "last_updated",
         )
+
+    def get_product_authors(self, obj):
+        """Возвращает всех авторов"""
+        return [author.name for author in obj.product.authors.all()]
+
+    def get_product_publishers(self, obj):
+        """Возвращает всех издателей"""
+        return [publisher.name for publisher in obj.product.publishers.all()]
+
+    def get_product_categories(self, obj):
+        """Возвращает все категории"""
+        return [category.name for category in obj.product.categories.all()]
 
 
 class PriceHistorySerializer(serializers.ModelSerializer):
@@ -86,9 +91,9 @@ class PriceHistorySerializer(serializers.ModelSerializer):
 
 
 class ProductSerializer(serializers.ModelSerializer):
-    author = AuthorSerializer(read_only=True)
-    publisher = PublisherSerializer(read_only=True)
-    category = CategorySerializer(read_only=True)
+    authors = AuthorSerializer(many=True, read_only=True)
+    publishers = PublisherSerializer(many=True, read_only=True)
+    categories = CategorySerializer(many=True, read_only=True)
     min_price = serializers.DecimalField(
         max_digits=10, decimal_places=2, read_only=True
     )
@@ -100,20 +105,17 @@ class ProductSerializer(serializers.ModelSerializer):
             "id",
             "title",
             "slug",
-            "author",
-            "publisher",
-            "category",
-            "ean",
-            "brand",
-            "description",
-            "image_url",
+            "authors",
+            "publishers",
+            "categories",
             "min_players",
             "max_players",
             "playtime_min",
             "min_age",
-            "external_id",
             "min_price",
             "offers_count",
+            "created_at",
+            "updated_at",
         )
 
 

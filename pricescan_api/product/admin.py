@@ -27,27 +27,69 @@ class PriceHistoryInline(admin.TabularInline):
     readonly_fields = ("timestamp",)
 
 
+class ProductCategoryInline(admin.TabularInline):
+    model = Product.categories.through
+    extra = 0
+    autocomplete_fields = ("category",)
+
+
+class ProductAuthorInline(admin.TabularInline):
+    model = Product.authors.through
+    extra = 0
+    autocomplete_fields = ("author",)
+
+
+class ProductPublisherInline(admin.TabularInline):
+    model = Product.publishers.through
+    extra = 0
+    autocomplete_fields = ("publisher",)
+
+
 @admin.register(Product)
 class ProductAdmin(ImportExportModelAdmin):
     list_display = (
         "id",
         "title",
-        "author",
-        "publisher",
-        "category",
-        "ean",
-        "brand",
+        "get_authors_display",
+        "get_publishers_display",
+        "get_categories_display",
         "min_players",
         "max_players",
         "min_age",
+        "created_at",
         "updated_at",
     )
-    list_filter = ("category", "publisher", "min_age")
-    search_fields = ("title", "ean", "brand", "author__name", "publisher__name")
-    autocomplete_fields = ("author", "publisher", "category")
+    list_filter = (
+        "categories",
+        "publishers",
+        "authors",
+        "min_age",
+        "created_at",
+    )
+    search_fields = ("title", "authors__name", "publishers__name", "categories__name")
+    filter_horizontal = ("authors", "publishers", "categories")
     prepopulated_fields = {"slug": ("title",)}
     inlines = [OfferInline]
     ordering = ("-updated_at",)
+    readonly_fields = ("created_at", "updated_at")
+
+    def get_authors_display(self, obj):
+        """Показывает всех авторов в списке"""
+        return ", ".join([author.name for author in obj.authors.all()[:3]])
+
+    get_authors_display.short_description = "Авторы"
+
+    def get_publishers_display(self, obj):
+        """Показывает всех издателей в списке"""
+        return ", ".join([publisher.name for publisher in obj.publishers.all()[:3]])
+
+    get_publishers_display.short_description = "Издатели"
+
+    def get_categories_display(self, obj):
+        """Показывает все категории в списке"""
+        return ", ".join([category.name for category in obj.categories.all()[:3]])
+
+    get_categories_display.short_description = "Категории"
 
 
 @admin.register(Offer)
@@ -61,17 +103,18 @@ class OfferAdmin(ImportExportModelAdmin):
         "is_available",
         "last_updated",
     )
-    list_filter = ("shop", "currency", "is_available")
+    list_filter = ("shop", "currency", "is_available", "last_updated")
     search_fields = ("product__title", "shop__name")
     autocomplete_fields = ("product", "shop")
     inlines = [PriceHistoryInline]
     ordering = ("price",)
+    readonly_fields = ("last_updated",)
 
 
 @admin.register(PriceHistory)
 class PriceHistoryAdmin(admin.ModelAdmin):
     list_display = ("id", "offer", "price", "currency", "timestamp")
-    list_filter = ("currency",)
+    list_filter = ("currency", "timestamp")
     search_fields = ("offer__product__title", "offer__shop__name")
     autocomplete_fields = ("offer",)
     ordering = ("-timestamp",)
@@ -86,23 +129,41 @@ class ShopAdmin(admin.ModelAdmin):
 
 @admin.register(Category)
 class CategoryAdmin(admin.ModelAdmin):
-    list_display = ("id", "name", "slug")
+    list_display = ("id", "name", "slug", "products_count")
     prepopulated_fields = {"slug": ("name",)}
     search_fields = ("name",)
+
+    def products_count(self, obj):
+        """Показывает количество продуктов в категории"""
+        return obj.products.count()
+
+    products_count.short_description = "Количество продуктов"
 
 
 @admin.register(Author)
 class AuthorAdmin(admin.ModelAdmin):
-    list_display = ("id", "name", "slug")
+    list_display = ("id", "name", "slug", "products_count")
     prepopulated_fields = {"slug": ("name",)}
     search_fields = ("name",)
+
+    def products_count(self, obj):
+        """Показывает количество продуктов автора"""
+        return obj.products.count()
+
+    products_count.short_description = "Количество продуктов"
 
 
 @admin.register(Publisher)
 class PublisherAdmin(admin.ModelAdmin):
-    list_display = ("id", "name", "slug")
+    list_display = ("id", "name", "slug", "products_count")
     prepopulated_fields = {"slug": ("name",)}
     search_fields = ("name",)
+
+    def products_count(self, obj):
+        """Показывает количество продуктов издателя"""
+        return obj.products.count()
+
+    products_count.short_description = "Количество продуктов"
 
 
 @admin.register(PriceAlert)
@@ -118,6 +179,7 @@ class PriceAlertAdmin(admin.ModelAdmin):
         "last_triggered_at",
         "created_at",
     )
-    list_filter = ("is_active", "currency", "shop")
+    list_filter = ("is_active", "currency", "shop", "created_at")
     search_fields = ("user__username", "product__title", "shop__name")
     autocomplete_fields = ("user", "product", "shop")
+    readonly_fields = ("last_triggered_at", "created_at")

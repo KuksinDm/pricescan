@@ -16,6 +16,10 @@ class Category(models.Model):
     def __str__(self):
         return self.name
 
+    class Meta:
+        verbose_name = "Категория"
+        verbose_name_plural = "Категории"
+
 
 class Author(models.Model):
     name = models.CharField(max_length=200)
@@ -42,28 +46,25 @@ class Publisher(models.Model):
     def __str__(self):
         return self.name
 
+    class Meta:
+        verbose_name = "Издатель"
+        verbose_name_plural = "Издатели"
+
 
 class Product(models.Model):
     # Основная информация о книге
     title = models.CharField(max_length=500)
-    author = models.ForeignKey(Author, on_delete=models.CASCADE)
-    publisher = models.ForeignKey(
-        Publisher, on_delete=models.CASCADE, null=True, blank=True
-    )
-    category = models.ForeignKey(Category, on_delete=models.CASCADE)
-
-    # Идентификаторы для поиска
-    ean = models.CharField(max_length=50, null=True, blank=True)
-    brand = models.CharField(max_length=100, null=True, blank=True)
     slug = models.SlugField(max_length=200, unique=True)
+    # Множественные связи
+    authors = models.ManyToManyField(Author, related_name="products", blank=True)
+    publishers = models.ManyToManyField(Publisher, related_name="products", blank=True)
+    categories = models.ManyToManyField(Category, related_name="products", blank=True)
 
-    # Метаданные
-    description = models.TextField(null=True, blank=True)
+    # Игровые характеристики
     min_players = models.PositiveIntegerField(null=True, blank=True)
     max_players = models.PositiveIntegerField(null=True, blank=True)
     playtime_min = models.PositiveIntegerField(null=True, blank=True)
     min_age = models.PositiveIntegerField(null=True, blank=True)
-    external_id = models.CharField(max_length=100, null=True, blank=True)
 
     # Системные поля
     created_at = models.DateTimeField(auto_now_add=True)
@@ -72,9 +73,9 @@ class Product(models.Model):
     class Meta:
         indexes = [
             models.Index(fields=["title"]),
-            models.Index(fields=["ean"]),
-            models.Index(fields=["external_id"]),
         ]
+        verbose_name = "Игра"
+        verbose_name_plural = "Игры"
 
     def save(self, *args, **kwargs):
         if not self.slug:
@@ -100,6 +101,10 @@ class Shop(models.Model):
     def __str__(self):
         return self.name
 
+    class Meta:
+        verbose_name = "Магазин"
+        verbose_name_plural = "Магазины"
+
 
 class Offer(models.Model):
     product = models.ForeignKey(
@@ -122,6 +127,8 @@ class Offer(models.Model):
             models.Index(fields=["price"]),
             models.Index(fields=["last_updated"]),
         ]
+        verbose_name = "Предложение"
+        verbose_name_plural = "Предложения"
 
     def __str__(self):
         return f"{self.product} @ {self.shop}"
@@ -139,6 +146,8 @@ class PriceHistory(models.Model):
         indexes = [
             models.Index(fields=["timestamp"]),
         ]
+        verbose_name = "История цен"
+        verbose_name_plural = "История цен"
 
     def __str__(self):
         return f"{self.price} {self.currency}"
@@ -168,6 +177,8 @@ class PriceAlert(models.Model):
             models.Index(fields=["product", "is_active"]),
             models.Index(fields=["threshold_price"]),
         ]
+        verbose_name = "Алерт"
+        verbose_name_plural = "Алерты"
 
     def __str__(self):
-        return self.product.title
+        return f"{self.product.title} - {self.threshold_price} {self.currency}"

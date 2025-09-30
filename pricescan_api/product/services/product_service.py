@@ -1,4 +1,3 @@
-# pricescan_api/product/services/product_service.py
 import logging
 from typing import Dict, List, Optional, Tuple
 
@@ -22,14 +21,6 @@ class ProductService:
             product.title = parser_result["title"]
             updated_fields.append("title")
 
-        if parser_result.get("description") and not product.description:
-            product.description = parser_result["description"]
-            updated_fields.append("description")
-
-        if parser_result.get("manufacturer") and not product.brand:
-            product.brand = parser_result["manufacturer"]
-            updated_fields.append("brand")
-
         # Обновляем игровые характеристики
         self._update_game_characteristics(product, parser_result, updated_fields)
 
@@ -51,60 +42,24 @@ class ProductService:
 
             logger.info(f"Processing product: {title}")
 
-            # Поиск по названию или внешнему ID
-            product = None
-            if product_data.get("external_id"):
-                product = Product.objects.filter(
-                    external_id=product_data["external_id"]
-                ).first()
-                logger.info(f"Found product by external_id: {product}")
-
-            if not product:
-                product = Product.objects.filter(title=title).first()
-                logger.info(f"Found product by title: {product}")
+            # Поиск по названию
+            product = Product.objects.filter(title=title).first()
+            logger.info(f"Found product by title: {product}")
 
             created = False
             if not product:
                 logger.info("Creating new product")
                 # Создаем новый товар
-                author = self._get_or_create_author("Неизвестно")
-                category = self._get_or_create_category("Настольные игры")
-                publisher = self._get_or_create_publisher(
-                    product_data.get("manufacturer", "Неизвестно")
-                )
+                product = Product.objects.create(title=title)
 
-                logger.info(
-                    f"Created author: {author}, category: "
-                    f"{category}, publisher: {publisher}"
-                )
+                # Создаем и добавляем связи ManyToMany
+                self._setup_product_relations(product, product_data)
 
-                product, created = Product.objects.update_or_create(
-                    title=title,
-                    defaults={
-                        "author": author,
-                        "publisher": publisher,
-                        "category": category,
-                        "brand": product_data.get("brand"),
-                        "description": product_data.get("description", ""),
-                        "external_id": product_data.get("external_id"),
-                        "min_age": self._parse_age(product_data.get("age")),
-                        "playtime_min": self._parse_playtime(
-                            product_data.get("play_time")
-                        ),
-                        # "year": self._parse_year(product_data.get("year")),
-                    },
-                )
-
-                logger.info(f"Product created/updated: {product}, created: {created}")
-
-                # Устанавливаем диапазон игроков
-                players_range = self._parse_players_range(product_data.get("players"))
-                if players_range:
-                    product.min_players, product.max_players = players_range
-                    product.save(update_fields=["min_players", "max_players"])
-                    logger.info(f"Set players range: {players_range}")
-
+                logger.info(f"Product created: {product}")
                 created = True
+            else:
+                # Обновляем связи для существующего продукта
+                self._update_product_relations(product, product_data)
 
             logger.info(f"Final result: created={created}, product_id={product.id}")
             return {
@@ -112,6 +67,38 @@ class ProductService:
                 "product_id": product.id,
                 "product": product,
             }
+
+    def _setup_product_relations(self, product: Product, product_data: Dict):
+        """Настройка связей для нового продукта"""
+        # Авторы
+        authors = self._parse_authors(product_data.get("manufacturer", "Неизвестно"))
+        product.authors.set(authors)
+
+        # Издатели
+        publishers = self._parse_publishers(
+            product_data.get("manufacturer", "Неизвестно")
+        )
+        product.publishers.set(publishers)
+
+        # Категории
+        categories = self._parse_categories("Настольные игры")
+        product.categories.set(categories)
+
+        # Игровые характеристики
+        players_range = self._parse_players_range(product_data.get("players"))
+        if players_range:
+            product.min_players, product.max_players = players_range
+
+        product.min_age = self._parse_age(product_data.get("age"))
+        product.playtime_min = self._parse_playtime(product_data.get("play_time"))
+
+        product.save()
+
+    def _update_product_relations(self, product: Product, product_data: Dict):
+        """Обновление связей для существующего продукта"""
+        # Добавляем новых авторов/издателей/категории если нужно
+        # (пока просто логируем)
+        logger.info(f"Updating relations for product {product.id}")
 
     def _update_game_characteristics(
         self, product: Product, parser_result: Dict, updated_fields: List[str]
@@ -135,16 +122,74 @@ class ProductService:
                 product.playtime_min = playtime
                 updated_fields.append("playtime_min")
 
+    def _parse_authors(self, author_str: str) -> List[Author]:
+        """Парсинг авторов"""
+        if not author_str:
+            author_str = "Неизвестно"
+
+        # Разделяем по запятым если несколько авторов
+        author_names = [name.strip() for name in author_str.split(",")]
+        authors = []
+
+        for name in author_names:
+            if name:
+                author, _ = Author.objects.get_or_create(
+                    name=name, defaults={"slug": slugify(unidecode(name))}
+                )
+                authors.append(author)
+
+        return authors if authors else [self._get_or_create_author("Неизвестно")]
+
+    def _parse_publishers(self, publisher_str: str) -> List[Publisher]:
+        """Парсинг издателей"""
+        if not publisher_str:
+            publisher_str = "Неизвестно"
+
+        # Разделяем по запятым если несколько издателей
+        publisher_names = [name.strip() for name in publisher_str.split(",")]
+        publishers = []
+
+        for name in publisher_names:
+            if name:
+                publisher, _ = Publisher.objects.get_or_create(
+                    name=name, defaults={"slug": slugify(unidecode(name))}
+                )
+                publishers.append(publisher)
+
+        return (
+            publishers if publishers else [self._get_or_create_publisher("Неизвестно")]
+        )
+
+    def _parse_categories(self, category_str: str) -> List[Category]:
+        """Парсинг категорий"""
+        if not category_str:
+            category_str = "Неизвестно"
+
+        # Разделяем по запятым если несколько категорий
+        category_names = [name.strip() for name in category_str.split(",")]
+        categories = []
+
+        for name in category_names:
+            if name:
+                category, _ = Category.objects.get_or_create(
+                    name=name, defaults={"slug": slugify(unidecode(name))}
+                )
+                categories.append(category)
+
+        return (
+            categories if categories else [self._get_or_create_category("Неизвестно")]
+        )
+
     def _get_or_create_author(self, name: str) -> Author:
-        """Получение или создание автора/производителя"""
-        safe_name = name or "Неизвестно"  # Гарантируем не-None значение
+        """Получение или создание автора"""
+        safe_name = name or "Неизвестно"
         author, created = Author.objects.get_or_create(
             name=safe_name, defaults={"slug": slugify(unidecode(safe_name))}
         )
         return author
 
     def _get_or_create_publisher(self, name: str) -> Publisher:
-        """Получение или создание издателя/производителя"""
+        """Получение или создание издателя"""
         safe_name = name or "Неизвестно"
         publisher, created = Publisher.objects.get_or_create(
             name=safe_name, defaults={"slug": slugify(unidecode(safe_name))}
@@ -203,20 +248,3 @@ class ProductService:
                 return int(playtime_str.strip())
         except (ValueError, IndexError):
             return None
-
-    # def _parse_year(self, year_data: any) -> Optional[int]:
-    #     """Парсинг года выпуска"""
-    #     if not year_data:
-    #         return None
-
-    #     if isinstance(year_data, int):
-    #         return year_data
-
-    #     if isinstance(year_data, str):
-    #         import re
-
-    #         years = re.findall(r"\b(19|20)\d{2}\b", year_data)
-    #         if years:
-    #             return int(max(years))
-
-    #     return None
