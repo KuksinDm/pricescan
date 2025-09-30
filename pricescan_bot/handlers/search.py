@@ -4,7 +4,7 @@ from aiogram import F, Router
 from aiogram.types import CallbackQuery, Message
 
 from ..api import ApiClient
-from ..services.formatting import format_offer_text
+from ..services.formatting import format_offer_text_no_description
 from ..services.state import set_wait_mode
 from ..utils.auth import ensure_jwt
 from ..utils.keyboards import offer_actions_kb
@@ -27,36 +27,74 @@ async def ask_query(message: Message):
     & ~F.text.func(is_button_text)
     & ~F.text.regexp(r"^\d+[\.,]?\d*$")
 )
+# async def do_search(message: Message, api: ApiClient):
+#     q = (message.text or "").strip()
+#     if not q:
+#         return await message.answer("Пустой запрос. Введите название игры.")
+#     await ensure_jwt(message, api)
+#     try:
+#         offer = await api.get_cheapest(q)
+#     except Exception:
+#         logger.exception("get_cheapest failed for query=%r", q)
+#         return await message.answer("Сервис временно недоступен. Попробуйте позже.")
+#     if not offer:
+#         return await message.answer("Ничего не нашлось")
+#     # попутно добавим запись в историю (best-effort)
+#     try:
+#         await api.add_search_history(
+#             telegram_id=message.from_user.id, query=q, results_count=1
+#         )
+#     except Exception:
+#         logger.exception("add_search_history failed")
+#     try:
+#         await message.answer(
+#             format_offer_text(offer),
+#             reply_markup=offer_actions_kb(
+#                 offer["product"], offer["url"], offer["currency"]
+#             ),
+#             disable_web_page_preview=True,
+#         )
+#     except Exception:
+#         logger.exception("Failed to send offer message")
+#         await message.answer("Не удалось отправить сообщение.")
 async def do_search(message: Message, api: ApiClient):
     q = (message.text or "").strip()
     if not q:
         return await message.answer("Пустой запрос. Введите название игры.")
     await ensure_jwt(message, api)
     try:
-        offer = await api.get_cheapest(q)
+        # Получаем все варианты
+        offers = await api.get_cheapest(q)
     except Exception:
         logger.exception("get_cheapest failed for query=%r", q)
         return await message.answer("Сервис временно недоступен. Попробуйте позже.")
-    if not offer:
+
+    if not offers:
         return await message.answer("Ничего не нашлось")
-    # попутно добавим запись в историю (best-effort)
+
+    # Отправляем отдельное сообщение для каждого товара
+    for offer in offers[:5]:  # Максимум 5 товаров
+        # Форматируем сообщение без описания
+        text = format_offer_text_no_description(offer)
+        
+        # Создаем кнопки для товара
+        keyboard = offer_actions_kb(
+            offer["product"], offer["url"], offer["currency"]
+        )
+        
+        await message.answer(
+            text,
+            reply_markup=keyboard,
+            disable_web_page_preview=True,
+        )
+
+    # Добавляем в историю поиска
     try:
         await api.add_search_history(
-            telegram_id=message.from_user.id, query=q, results_count=1
+            telegram_id=message.from_user.id, query=q, results_count=len(offers)
         )
     except Exception:
         logger.exception("add_search_history failed")
-    try:
-        await message.answer(
-            format_offer_text(offer),
-            reply_markup=offer_actions_kb(
-                offer["product"], offer["url"], offer["currency"]
-            ),
-            disable_web_page_preview=True,
-        )
-    except Exception:
-        logger.exception("Failed to send offer message")
-        await message.answer("Не удалось отправить сообщение.")
 
 
 @router.callback_query(F.data.startswith("refresh:"))

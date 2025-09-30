@@ -3,6 +3,7 @@ from typing import Iterable
 
 import requests
 from celery import shared_task
+from django.conf import settings
 from django.utils import timezone
 
 from user.models import User, UserFavorite
@@ -177,20 +178,33 @@ def check_alerts_for_product(product_id: int) -> int:
     count = 0
     for alert in triggered:
         try:
-            bot_url = "http://pricescan_bot:8000/send_alert"
+            # Проверяем, что у пользователя есть telegram_id
+            if not alert.user.telegram_id:
+                logger.warning(
+                    f"User {alert.user_id} has no telegram_id, skipping alert"
+                )
+                continue
+
+            # URL на FastAPI бота
+            bot_url = "http://bot_pricescan:8000/send_alert"
             payload = {
-                "user_id": alert.user_id,
+                "user_id": alert.user.telegram_id,  # ← Используем telegram_id вместо user_id
                 "product_id": product_id,
                 "price": float(min_offer.price),
                 "url": min_offer.url,
                 "alert_id": alert.id,
             }
-            requests.post(bot_url, json=payload, timeout=5)
+            # Добавляем сервисный токен в заголовки
+            headers = {
+                "X-Service-Token": settings.BOT_SERVICE_TOKEN,
+                "Content-Type": "application/json",
+            }
+            requests.post(bot_url, json=payload, headers=headers, timeout=5)
         except Exception as e:
             logger.error(f"Failed to send alert to bot: {e}")
         logger.info(
             "ALERT TRIGGER user=%s product=%s price=%s url=%s",
-            alert.user_id,
+            alert.user.telegram_id,  # ← И в логах тоже telegram_id
             product_id,
             min_offer.price,
             min_offer.url,
@@ -199,8 +213,6 @@ def check_alerts_for_product(product_id: int) -> int:
         alert.is_active = False  # авто-выключение после срабатывания
         alert.save(update_fields=["last_triggered_at", "is_active"])
         count += 1
-
-    return count
 
 
 @shared_task(queue="heavy")

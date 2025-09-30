@@ -27,8 +27,5 @@ RUN playwright install-deps
 # Копируем исходный код
 COPY . .
 
-# Открываем порт
-EXPOSE 8000
-
 # Запускаем приложение
 CMD ["python", "-m", "uvicorn", "api_server:app", "--host", "0.0.0.0", "--port", "8000"]

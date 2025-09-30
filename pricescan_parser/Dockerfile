@@ -14,7 +14,5 @@ RUN uv pip install --system .
 
 COPY . .
 
-EXPOSE 8000
-
 # Запускаем сервер через entrypoint.sh
 CMD ["python", "-m", "uvicorn", "api_server:app", "--host", "0.0.0.0", "--port", "8000"]

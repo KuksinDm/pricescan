@@ -5,13 +5,13 @@ def fmt_dt_iso(ts: str | None) -> str:
     return ts[:10]
 
 
-def format_offer_text(o: dict) -> str:
+def format_offer_text_no_description(o: dict) -> str:
+    """Форматирует текст товара без описания"""
     return (
         f"Игра: {o['product_title']}\n"
         f"Автор: {o.get('product_author') or '-'} | Издатель: {o.get('product_publisher') or '-'}\n"
         f"Категория: {o.get('product_category') or '-'}\n"
         f"Игроки: {o.get('min_players') or '?'}–{o.get('max_players') or '?'} | "
         f"Время: {o.get('playtime_min') or '?'} мин | Возраст: {o.get('min_age') or '?'}+\n"
-        f"Цена: {o['price']} {o['currency']} | Магазин: {o['shop']['name']}\n"
-        f"\n{(o.get('description') or '')[:400]}"
+        f"Цена: {o['price']} {o['currency']} | Магазин: {o['shop']['name']}"
     )

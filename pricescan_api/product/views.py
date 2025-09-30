@@ -48,24 +48,58 @@ class ProductViewSet(viewsets.ReadOnlyModelViewSet):
                 queryset = queryset.filter(**{field: int(value)})
         return queryset.order_by("title")
 
-    @extend_schema(summary="Самое дешёвое предложение по запросу")
+    @extend_schema(summary="Все предложения по запросу (группировка по продуктам)")
     @action(detail=False, methods=["get"], url_path="cheapest")
     def cheapest(self, request):
         query = request.query_params.get("q")
         if not query:
             return Response({"detail": "Параметр q обязателен"}, status=400)
+
+        # Находим все продукты по запросу
         products = self.get_queryset()
         if not products.exists():
             return Response({"detail": "Не найдено"}, status=404)
-        offer = (
-            Offer.objects.filter(product__in=products, is_available=True)
-            .select_related("shop", "product")
-            .order_by("price")
-            .first()
-        )
-        if not offer:
-            return Response({"detail": "Нет предложений"}, status=404)
-        return Response(OfferSerializer(offer).data, status=200)
+
+        # Для каждого продукта находим лучшее предложение
+        results = []
+        for product in products:
+            best_offer = (
+                Offer.objects.filter(product=product, is_available=True)
+                .select_related("shop")
+                .order_by("price")
+                .first()
+            )
+            if best_offer:
+                offer_data = OfferSerializer(best_offer).data
+                # Добавляем количество всех предложений
+                offer_data["total_offers"] = Offer.objects.filter(
+                    product=product, is_available=True
+                ).count()
+                results.append(offer_data)
+
+        # Сортируем по цене (самые дешевые первые)
+        results.sort(key=lambda x: float(x["price"]))
+
+        return Response(results, status=200)
+
+    # @extend_schema(summary="Самое дешёвое предложение по запросу")
+    # @action(detail=False, methods=["get"], url_path="cheapest")
+    # def cheapest(self, request):
+    #     query = request.query_params.get("q")
+    #     if not query:
+    #         return Response({"detail": "Параметр q обязателен"}, status=400)
+    #     products = self.get_queryset()
+    #     if not products.exists():
+    #         return Response({"detail": "Не найдено"}, status=404)
+    #     offer = (
+    #         Offer.objects.filter(product__in=products, is_available=True)
+    #         .select_related("shop", "product")
+    #         .order_by("price")
+    #         .first()
+    #     )
+    #     if not offer:
+    #         return Response({"detail": "Нет предложений"}, status=404)
+    #     return Response(OfferSerializer(offer).data, status=200)
 
     @extend_schema(summary="Обновить цены по продукту (запуск задачи)")
     @action(

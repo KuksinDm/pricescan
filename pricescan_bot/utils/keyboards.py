@@ -27,23 +27,19 @@ def offer_actions_kb(product_id: int, url: str, currency: str):
             [
                 InlineKeyboardButton(
                     text="Обновить цены", callback_data=f"refresh:{product_id}"
-                )
-            ],
-            [
+                ),
                 InlineKeyboardButton(
                     text="Все предложения", callback_data=f"offers:{product_id}"
-                )
+                ),
             ],
             [
                 InlineKeyboardButton(
                     text="В избранное", callback_data=f"fav-add:{product_id}"
-                )
-            ],
-            [
+                ),
                 InlineKeyboardButton(
                     text="Создать алерт",
                     callback_data=f"alert-new:{product_id}:{currency}",
-                )
+                ),
             ],
             [InlineKeyboardButton(text="Открыть в магазине", url=url)],
         ]
