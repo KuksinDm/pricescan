@@ -46,7 +46,6 @@ async def do_search(message: Message, container):
         return await message.answer("Ошибка авторизации. Попробуйте позже.")
 
     try:
-        # Получаем все варианты
         offers = await container.api_client.get_cheapest(query)
     except Exception:
         logger.exception("get_cheapest failed for query=%r", query)
@@ -55,12 +54,9 @@ async def do_search(message: Message, container):
     if not offers:
         return await message.answer("Ничего не нашлось")
 
-    # Отправляем отдельное сообщение для каждого товара
-    for offer in offers[:MAX_SEARCH_RESULTS]:  # Максимум 5 товаров
-        # Форматируем сообщение без описания
+    for offer in offers[:MAX_SEARCH_RESULTS]:
         text = format_offer_text_no_description(offer)
 
-        # Создаем кнопки для товара
         keyboard = offer_actions_kb(offer["product"], offer["url"], offer["currency"])
 
         await message.answer(

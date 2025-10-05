@@ -3,10 +3,22 @@ from django.db import models
 from django.utils.text import slugify
 from unidecode import unidecode
 
+from .constants import (
+    CURRENCY_LENGTH,
+    DEFAULT_CURRENCY,
+    NAME_MAX_LENGTH,
+    PARSER_TYPE_MAX_LENGTH,
+    PRICE_DECIMAL_PLACES,
+    PRICE_MAX_DIGITS,
+    SHOP_NAME_MAX_LENGTH,
+    SLUG_MAX_LENGTH,
+    TITLE_MAX_LENGTH,
+)
+
 
 class Category(models.Model):
-    name = models.CharField(max_length=200, unique=True)
-    slug = models.SlugField(max_length=200, unique=True)
+    name = models.CharField(max_length=NAME_MAX_LENGTH, unique=True)
+    slug = models.SlugField(max_length=SLUG_MAX_LENGTH, unique=True)
 
     def save(self, *args, **kwargs):
         if not self.slug:
@@ -22,8 +34,8 @@ class Category(models.Model):
 
 
 class Publisher(models.Model):
-    name = models.CharField(max_length=200)
-    slug = models.SlugField(max_length=200)
+    name = models.CharField(max_length=NAME_MAX_LENGTH)
+    slug = models.SlugField(max_length=SLUG_MAX_LENGTH)
 
     def save(self, *args, **kwargs):
         if not self.slug:
@@ -39,21 +51,18 @@ class Publisher(models.Model):
 
 
 class Product(models.Model):
-    # Основная информация о книге
-    title = models.CharField(max_length=500)
-    slug = models.SlugField(max_length=200, unique=True)
+    title = models.CharField(max_length=TITLE_MAX_LENGTH)
+    slug = models.SlugField(max_length=SLUG_MAX_LENGTH, unique=True)
 
     # Множественные связи
     publishers = models.ManyToManyField(Publisher, related_name="products", blank=True)
     categories = models.ManyToManyField(Category, related_name="products", blank=True)
 
-    # Игровые характеристики
     min_players = models.PositiveIntegerField(null=True, blank=True)
     max_players = models.PositiveIntegerField(null=True, blank=True)
     playtime_min = models.PositiveIntegerField(null=True, blank=True)
     min_age = models.PositiveIntegerField(null=True, blank=True)
 
-    # Системные поля
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -74,10 +83,10 @@ class Product(models.Model):
 
 
 class Shop(models.Model):
-    name = models.CharField(max_length=100)
+    name = models.CharField(max_length=SHOP_NAME_MAX_LENGTH)
     domain = models.URLField()
     parser_type = models.CharField(
-        max_length=20,
+        max_length=PARSER_TYPE_MAX_LENGTH,
         choices=[
             ("playwright", "Playwright"),
             ("beautifulsoup", "BeautifulSoup"),
@@ -98,13 +107,11 @@ class Offer(models.Model):
         Product, on_delete=models.CASCADE, related_name="offers"
     )
     shop = models.ForeignKey(Shop, on_delete=models.CASCADE)
-
-    # Цена и наличие
-    price = models.DecimalField(max_digits=10, decimal_places=2)
-    currency = models.CharField(max_length=3, default="RUB")
+    price = models.DecimalField(
+        max_digits=PRICE_MAX_DIGITS, decimal_places=PRICE_DECIMAL_PLACES
+    )
+    currency = models.CharField(max_length=CURRENCY_LENGTH, default=DEFAULT_CURRENCY)
     is_available = models.BooleanField(default=True)
-
-    # Ссылка и метаданные
     url = models.URLField()
     last_updated = models.DateTimeField(auto_now=True)
 
@@ -125,8 +132,10 @@ class PriceHistory(models.Model):
     offer = models.ForeignKey(
         Offer, on_delete=models.CASCADE, related_name="price_history"
     )
-    price = models.DecimalField(max_digits=10, decimal_places=2)
-    currency = models.CharField(max_length=3, default="RUB")
+    price = models.DecimalField(
+        max_digits=PRICE_MAX_DIGITS, decimal_places=PRICE_DECIMAL_PLACES
+    )
+    currency = models.CharField(max_length=CURRENCY_LENGTH, default=DEFAULT_CURRENCY)
     timestamp = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -149,9 +158,11 @@ class PriceAlert(models.Model):
     )
     shop = models.ForeignKey(
         "product.Shop", on_delete=models.CASCADE, null=True, blank=True
-    )  # опционально: алерт по конкретному магазину
-    threshold_price = models.DecimalField(max_digits=10, decimal_places=2)
-    currency = models.CharField(max_length=3, default="RUB")
+    )
+    threshold_price = models.DecimalField(
+        max_digits=PRICE_MAX_DIGITS, decimal_places=PRICE_DECIMAL_PLACES
+    )
+    currency = models.CharField(max_length=CURRENCY_LENGTH, default=DEFAULT_CURRENCY)
     is_active = models.BooleanField(default=True)
     last_triggered_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

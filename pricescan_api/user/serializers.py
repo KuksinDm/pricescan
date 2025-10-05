@@ -3,7 +3,7 @@ from rest_framework import serializers
 
 from product.models import Offer
 
-from .models import SearchHistory, UserFavorite
+from .models import UserFavorite
 
 User = get_user_model()
 
@@ -67,8 +67,8 @@ class UserFavoriteSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "added_at")
 
 
-class SearchHistorySerializer(serializers.ModelSerializer):
-    class Meta:
-        model = SearchHistory
-        fields = ("id", "query", "search_date", "results_count")
-        read_only_fields = ("id", "search_date")
+# class SearchHistorySerializer(serializers.ModelSerializer):
+#     class Meta:
+#         model = SearchHistory
+#         fields = ("id", "query", "search_date", "results_count")
+#         read_only_fields = ("id", "search_date")

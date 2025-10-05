@@ -60,7 +60,6 @@ class OfferSerializer(serializers.ModelSerializer):
             "is_available",
             "shop",
             "url",
-            "last_updated",
         )
 
     def get_product_publishers(self, obj):
@@ -100,8 +99,6 @@ class ProductSerializer(serializers.ModelSerializer):
             "min_age",
             "min_price",
             "offers_count",
-            "created_at",
-            "updated_at",
         )
 
 
@@ -119,6 +116,5 @@ class PriceAlertSerializer(serializers.ModelSerializer):
             "currency",
             "is_active",
             "last_triggered_at",
-            "created_at",
         )
-        read_only_fields = ("last_triggered_at", "created_at")
+        read_only_fields = ("last_triggered_at",)

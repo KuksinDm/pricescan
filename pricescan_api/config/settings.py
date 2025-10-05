@@ -197,14 +197,25 @@ CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 
 SPECTACULAR_SETTINGS = {
     "TITLE": "PriceScan API",
-    # "DESCRIPTION": "Поиск и сравнение цен
+    "DESCRIPTION": "API для мониторинга цен на настольные игры",
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
-        "SECURITY_SCHEMES": {
+    "COMPONENT_SPLIT_REQUEST": True,
+    "SCHEMA_PATH_PREFIX": "/api/",
+    "TAGS": [
+        {"name": "products", "description": "Управление товарами"},
+        {"name": "offers", "description": "Предложения магазинов"},
+        {"name": "shops", "description": "Магазины"},
+        {"name": "alerts", "description": "Уведомления о ценах"},
+        {"name": "health", "description": "Здоровье системы"},
+        {"name": "users", "description": "Управление пользователями"},
+        {"name": "auth", "description": "Авторизация и аутентификация"},
+    ],
+    "SECURITY_SCHEMES": {
         "BearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"},
         "ServiceToken": {"type": "apiKey", "in": "header", "name": "X-Service-Token"},
     },
-    "SECURITY": [{"BearerAuth": []}],  # глобально — JWT
+    "SECURITY": [{"BearerAuth": []}],
 }
 
 # Logging
@@ -236,7 +247,7 @@ LOGGING = {
             "formatter": "standard",
             "stream": "ext://sys.stdout",
         },
-        "user": {  # -------Новый handler для пользователей-------
+        "user": {
             "class": "logging.handlers.RotatingFileHandler",
             "filename": os.path.join(LOG_FOLDER, "user.log"),
             "maxBytes": 50 * 1024 * 1024,
@@ -244,7 +255,7 @@ LOGGING = {
             "formatter": "standard",
             "encoding": "utf-8",
         },
-        "product": {  # -------Новый handler для продуктов-------
+        "product": {
             "class": "logging.handlers.RotatingFileHandler",
             "filename": os.path.join(LOG_FOLDER, "product.log"),
             "maxBytes": 50 * 1024 * 1024,
@@ -252,7 +263,7 @@ LOGGING = {
             "formatter": "standard",
             "encoding": "utf-8",
         },
-        "parser_results": {  # -------Новый handler для парсинга-------
+        "parser_results": {
             "class": "logging.handlers.RotatingFileHandler",
             "filename": os.path.join(LOG_FOLDER, "parser_results.log"),
             "maxBytes": 50 * 1024 * 1024,
@@ -260,7 +271,7 @@ LOGGING = {
             "formatter": "standard",
             "encoding": "utf-8",
         },
-        "failed_requests": {  # -------Новый handler для неудачных запросов-------
+        "failed_requests": {
             "class": "logging.handlers.RotatingFileHandler",
             "filename": os.path.join(LOG_FOLDER, "failed_requests.log"),
             "maxBytes": 50 * 1024 * 1024,

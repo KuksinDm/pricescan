@@ -11,7 +11,6 @@ def fmt_dt_iso(ts: str | None) -> str:
 
 def format_offer_text_no_description(offer: Dict[str, Any]) -> str:
     """Форматирует текст товара без описания для отображения в боте"""
-    # Обрабатываем множественные издатели и категории
     publishers = offer.get("product_publishers", [])
     categories = offer.get("product_categories", [])
 

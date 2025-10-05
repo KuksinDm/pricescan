@@ -82,7 +82,9 @@ async def cb_alert_select(cb: CallbackQuery, container):
         return await cb.answer("Ошибка в данных", show_alert=True)
 
     try:
-        items = await container.api_client.list_alerts(telegram_id=cb.from_user.id, limit=LARGE_LIMIT)
+        items = await container.api_client.list_alerts(
+            telegram_id=cb.from_user.id, limit=LARGE_LIMIT
+        )
     except Exception:
         logger.exception("Failed to get alerts list for selection")
         return await cb.answer("Не удалось загрузить список", show_alert=True)
@@ -114,7 +116,9 @@ async def cb_alerts_activate_selected(cb: CallbackQuery, container):
             logger.exception("Failed to activate alert: id=%s", alert_id)
 
     clear_multi(user_id)
-    await refresh_alerts_page(cb.message, user_id, container.api_client, f"Включено: {activated_count}")
+    await refresh_alerts_page(
+        cb.message, user_id, container.api_client, f"Включено: {activated_count}"
+    )
 
 
 @router.callback_query(F.data == "alert-off-selected")
@@ -158,7 +162,9 @@ async def cb_alerts_delete_selected(cb: CallbackQuery, container):
             logger.exception("Failed to delete alert: id=%s", alert_id)
 
     clear_multi(user_id)
-    await refresh_alerts_page(cb.message, user_id, container.api_client, f"Удалено: {deleted_count}")
+    await refresh_alerts_page(
+        cb.message, user_id, container.api_client, f"Удалено: {deleted_count}"
+    )
 
 
 @router.callback_query(F.data == "alert-edit-selected")
@@ -172,8 +178,7 @@ async def cb_alerts_edit_selected(cb: CallbackQuery):
 
     if cb.message:
         await cb.message.answer("Введите новую пороговую цену (например 1990.00)")
-
-    # Устанавливаем режим ожидания
+    # Объединяем ID алертов в строку для режима ожидания
     alert_ids_str = ",".join(map(str, selected_ids))
     set_wait_mode(user_id, f"alertEdit:{alert_ids_str}")
 
@@ -200,6 +205,4 @@ async def on_price_input(message: Message, container):
             message, container.api_client, user_id, price, wait_mode
         )
     elif wait_mode.startswith("alertNew:"):
-        await handle_alert_new(
-            message, container.api_client, user_id, price, wait_mode
-        )
+        await handle_alert_new(message, container.api_client, user_id, price, wait_mode)

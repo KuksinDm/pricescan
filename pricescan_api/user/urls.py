@@ -1,13 +1,13 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from .views import BotJWTView, SearchHistoryViewSet, UserFavoriteViewSet, UserViewSet
+from .views import BotJWTView, UserFavoriteViewSet, UserViewSet
 
 app_name = "user"
 router = DefaultRouter()
 router.register(r"user", UserViewSet, basename="user")
 router.register(r"favorites", UserFavoriteViewSet, basename="favorites")
-router.register(r"search-history", SearchHistoryViewSet, basename="search-history")
+# router.register(r"search-history", SearchHistoryViewSet, basename="search-history")
 
 
 urlpatterns = [

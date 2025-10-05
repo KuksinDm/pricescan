@@ -49,48 +49,54 @@ class Command(BaseCommand):
 
             with transaction.atomic():
                 for row in reader:
-                    name = (row.get("name") or "").strip()
-                    if not name:
-                        skipped += 1
-                        continue
-
-                    base_slug = slugify(unidecode(name))
-                    if not base_slug:
-                        skipped += 1
-                        continue
-
-                    pk = (row.get("id") or "").strip()
-                    if pk.isdigit():
-                        obj, is_created = Category.objects.update_or_create(
-                            pk=int(pk),
-                            defaults={"name": name, "slug": base_slug},
-                        )
-                    else:
-                        obj, is_created = Category.objects.get_or_create(name=name)
-                        # проставим/обновим slug
-                        desired = base_slug
-                        if not obj.slug or obj.slug != desired:
-                            obj.slug = desired
-                            is_created = is_created  # не меняем флаг
-                            obj.save(update_fields=["slug"])
-
-                    # обеспечим уникальность slug (с суффиксом -2, -3...)
-                    if Category.objects.exclude(pk=obj.pk).filter(slug=obj.slug).exists():
-                        obj.slug = make_unique_slug(base_slug)
-                        if not options["dry_run"]:
-                            obj.save(update_fields=["slug"])
-
-                    if options["dry_run"]:
-                        skipped += 1
-                        continue
-
-                    if is_created:
+                    result = self._process_category_row(row, options)
+                    if result == "created":
                         created += 1
-                    else:
+                    elif result == "updated":
                         updated += 1
+                    else:
+                        skipped += 1
 
         self.stdout.write(
             self.style.SUCCESS(
-                f"Готово. Создано: {created}, обновлено: {updated}, пропущено: {skipped}"
+                f"Готово. Создано: {created}, обновлено: "
+                f"{updated}, пропущено: {skipped}"
             )
         )
+
+    def _process_category_row(self, row, options):
+        name = (row.get("name") or "").strip()
+        if not name:
+            return "skipped"
+
+        base_slug = slugify(unidecode(name))
+        if not base_slug:
+            return "skipped"
+
+        pk = (row.get("id") or "").strip()
+        if pk.isdigit():
+            obj, is_created = Category.objects.update_or_create(
+                pk=int(pk),
+                defaults={"name": name, "slug": base_slug},
+            )
+        else:
+            obj, is_created = Category.objects.get_or_create(name=name)
+            self._update_slug_if_needed(obj, base_slug, is_created)
+
+        self._ensure_unique_slug(obj, base_slug, options)
+
+        if options["dry_run"]:
+            return "skipped"
+
+        return "created" if is_created else "updated"
+
+    def _update_slug_if_needed(self, obj, desired_slug, is_created):
+        if not obj.slug or obj.slug != desired_slug:
+            obj.slug = desired_slug
+            obj.save(update_fields=["slug"])
+
+    def _ensure_unique_slug(self, obj, base_slug, options):
+        if Category.objects.exclude(pk=obj.pk).filter(slug=obj.slug).exists():
+            obj.slug = make_unique_slug(base_slug)
+            if not options["dry_run"]:
+                obj.save(update_fields=["slug"])

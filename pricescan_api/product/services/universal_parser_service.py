@@ -1,4 +1,3 @@
-# pricescan_api/product/services/universal_parser_service.py
 import logging
 from typing import Dict, List
 
@@ -29,7 +28,6 @@ class UniversalParserService:
                     return {"ok": False, "error": "No offer found and no URL provided"}
                 url = offer.url
 
-            # Получаем данные от парсера
             parser_result = self.parser_service.parse_product(
                 shop.parser_type, url, shop.name, shop.domain
             )
@@ -37,13 +35,11 @@ class UniversalParserService:
             if not parser_result.get("ok", False):
                 return parser_result
 
-            # Обновляем товар
             product = Product.objects.get(id=product_id)
             updated_fields = self.product_service.update_product_info(
                 product, parser_result
             )
 
-            # Обновляем оффер
             price = parser_result.get("price_rub")
             if price:
                 self.offer_service.update_or_create_offer(product, shop, price, url)
@@ -64,45 +60,29 @@ class UniversalParserService:
     def discover_products(
         self,
         shop_id: int,
-        query: str = "настольная игра",
         limit: int = 1000,
         page_start: int = 1,
         max_pages: int | None = 12,
     ) -> Dict:
         """Обнаружение новых товаров"""
         try:
-            logger.info(
-                f"discover_products called: shop_id={shop_id}, query={query}, "
-                f"limit={limit}"
-            )
             shop = Shop.objects.get(id=shop_id)
             shop_url = shop.domain
-            logger.info(
-                f"Shop found: {shop.name}, parser_type={shop.parser_type}, "
-                f"domain={shop.domain}"
-            )
 
-            # Парсинг каталога через парсер
-            logger.info(
-                f"Calling parser_service.parse_catalog with: "
-                f"parser_type={shop.parser_type}, shop_url={shop_url}, "
-                f"limit={limit}, shop_name={shop.name}"
-            )
             catalog_result = self.parser_service.parse_catalog(
                 shop.parser_type,
                 shop_url,
-                limit=limit,           # пробрасываем фактический лимит
+                limit=limit,
                 shop_name=shop.name,
-                page_start=page_start, # новый аргумент
-                max_pages=max_pages,   # новый аргумент
+                page_start=page_start,
+                max_pages=max_pages,
                 detail=True,
             )
-            logger.info(f"Catalog result: {catalog_result}")
+
             if not catalog_result.get("ok", False):
                 logger.error(f"Catalog parsing failed: {catalog_result}")
                 return catalog_result
 
-            # Создаем товары
             products_data = catalog_result.get("products", [])
             created_stats = self._create_products_from_data(products_data, shop)
 
@@ -131,7 +111,6 @@ class UniversalParserService:
                 else:
                     stats["products_updated"] += 1
 
-                # Создаем оффер
                 price = product_data.get("price_rub")
                 url = product_data.get("url", "")
                 if price and url:

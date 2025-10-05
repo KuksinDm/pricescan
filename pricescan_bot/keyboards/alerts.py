@@ -7,27 +7,21 @@ def alerts_kb(
     """Создает клавиатуру для списка алертов с пагинацией и множественным выбором"""
     rows: list[list[InlineKeyboardButton]] = []
 
-    # Создаем кнопки для каждого алерта
     for alert_item in items:
-        # Маркер выбранного элемента
         mark = "✅ " if alert_item["id"] in selected else ""
 
-        # Цена и валюта
         threshold_price = alert_item.get("threshold_price")
         currency = alert_item.get("currency") or ""
         price_text = (
             f" ≤ {threshold_price} {currency}" if threshold_price is not None else ""
         )
 
-        # Статус алерта
         status = "вкл" if alert_item.get("is_active") else "выкл"
 
-        # Название товара
         title = alert_item.get("product_title") or str(alert_item.get("product"))
 
-        # Ограничиваем длину текста кнопки
         button_text = f"{mark}{title}{price_text} — {status}"
-        if len(button_text) > 60:  # Telegram ограничение
+        if len(button_text) > 60:
             button_text = button_text[:57] + "..."
 
         rows.append([
@@ -37,7 +31,6 @@ def alerts_kb(
             )
         ])
 
-    # Кнопки управления выбранными элементами
     management_buttons = [
         [
             InlineKeyboardButton(
@@ -60,7 +53,6 @@ def alerts_kb(
     ]
     rows.extend(management_buttons)
 
-    # Кнопки навигации
     navigation_buttons = []
     if prev_off is not None:
         navigation_buttons.append(

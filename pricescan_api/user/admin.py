@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import SearchHistory, User, UserFavorite
+from .models import User, UserFavorite
 
 
 @admin.register(User)
@@ -9,12 +9,12 @@ class UserAdmin(admin.ModelAdmin):
     search_fields = ("username", "telegram_id", "email")
 
 
-@admin.register(SearchHistory)
-class SearchHistoryAdmin(admin.ModelAdmin):
-    list_display = ("id", "user", "query", "search_date", "results_count")
-    search_fields = ("user__username", "query")
-    autocomplete_fields = ("user",)
-    ordering = ("-search_date",)
+# @admin.register(SearchHistory)
+# class SearchHistoryAdmin(admin.ModelAdmin):
+#     list_display = ("id", "user", "query", "search_date", "results_count")
+#     search_fields = ("user__username", "query")
+#     autocomplete_fields = ("user",)
+#     ordering = ("-search_date",)
 
 
 @admin.register(UserFavorite)

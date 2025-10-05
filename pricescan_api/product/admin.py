@@ -1,6 +1,7 @@
 from django.contrib import admin
 from import_export.admin import ImportExportModelAdmin
 
+from .constants import MAX_DISPLAY_ITEMS
 from .models import (
     Category,
     Offer,
@@ -66,13 +67,17 @@ class ProductAdmin(ImportExportModelAdmin):
 
     def get_publishers_display(self, obj):
         """Показывает всех издателей в списке"""
-        return ", ".join([publisher.name for publisher in obj.publishers.all()[:3]])
+        return ", ".join([
+            publisher.name for publisher in obj.publishers.all()[:MAX_DISPLAY_ITEMS]
+        ])
 
     get_publishers_display.short_description = "Издатели"
 
     def get_categories_display(self, obj):
         """Показывает все категории в списке"""
-        return ", ".join([category.name for category in obj.categories.all()[:3]])
+        return ", ".join([
+            category.name for category in obj.categories.all()[:MAX_DISPLAY_ITEMS]
+        ])
 
     get_categories_display.short_description = "Категории"
 

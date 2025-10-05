@@ -3,7 +3,6 @@ from typing import Dict, Set
 
 logger = logging.getLogger(__name__)
 
-# Глобальные хранилища состояния пользователей
 _wait_mode: Dict[int, str] = {}
 _multi_selected: Dict[int, Set[int]] = {}
 

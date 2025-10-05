@@ -11,11 +11,10 @@ from rest_framework.views import APIView
 from rest_framework.viewsets import GenericViewSet
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import SearchHistory, UserFavorite
+from .models import UserFavorite
 from .permissions import IsServiceCall
 from .serializers import (
     BotAuthRequestSerializer,
-    SearchHistorySerializer,
     TokenPairSerializer,
     UserFavoriteSerializer,
     UserProfileSerializer,
@@ -33,7 +32,7 @@ class UserViewSet(GenericViewSet):
     @extend_schema(
         responses={200: UserProfileSerializer},
         summary="Получить профиль пользователя",
-        tags=["user"],
+        tags=["users"],
     )
     @action(
         detail=False,
@@ -82,31 +81,32 @@ class UserFavoriteViewSet(
         serializer.save(user=self.request.user)
 
 
-class SearchHistoryViewSet(
-    mixins.ListModelMixin,
-    mixins.CreateModelMixin,
-    mixins.DestroyModelMixin,
-    GenericViewSet,
-):
-    permission_classes = [permissions.IsAuthenticated]
-    serializer_class = SearchHistorySerializer
-    http_method_names = ["get", "post", "delete"]
+# class SearchHistoryViewSet(
+#     mixins.ListModelMixin,
+#     mixins.CreateModelMixin,
+#     mixins.DestroyModelMixin,
+#     GenericViewSet,
+# ):
+#     permission_classes = [permissions.IsAuthenticated]
+#     serializer_class = SearchHistorySerializer
+#     http_method_names = ["get", "post", "delete"]
 
-    def get_queryset(self):
-        return SearchHistory.objects.filter(user=self.request.user)
+#     def get_queryset(self):
+#         return SearchHistory.objects.filter(user=self.request.user)
 
-    def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+#     def perform_create(self, serializer):
+#         serializer.save(user=self.request.user)
 
-    @extend_schema(
-        summary="Очистить всю историю поиска",
-        description="Удаляет все записи истории текущего пользователя и возвращает количество удалённых.",
-        tags=["search-history"],
-    )
-    @action(detail=False, methods=["delete"], url_path="clear")
-    def clear(self, request):
-        deleted = self.get_queryset().delete()[0]
-        return Response({"deleted": deleted}, status=status.HTTP_200_OK)
+#     @extend_schema(
+#         summary="Очистить всю историю поиска",
+#         description="Удаляет все записи истории текущего пользователя "
+#         "и возвращает количество удалённых.",
+#         tags=["search-history"],
+#     )
+#     @action(detail=False, methods=["delete"], url_path="clear")
+#     def clear(self, request):
+#         deleted = self.get_queryset().delete()[0]
+#         return Response({"deleted": deleted}, status=status.HTTP_200_OK)
 
 
 class BotJWTView(APIView):

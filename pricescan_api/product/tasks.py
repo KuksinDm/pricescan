@@ -8,14 +8,64 @@ from django.utils import timezone
 
 from user.models import User, UserFavorite
 
+from .constants import (
+    BOT_SEND_ALERT_URL,
+    BOT_SEND_MESSAGE_URL,
+    DEFAULT_BATCH_LIMIT,
+    DEFAULT_DISCOVERY_LIMIT,
+    DEFAULT_MAX_PAGES_PER_CALL,
+    DEFAULT_MAX_TOTAL_PAGES,
+    DEFAULT_TIMEOUT,
+    REFRESH_COUNTDOWN,
+)
 from .models import Offer, PriceAlert, Shop
 from .services.universal_parser_service import UniversalParserService
 
 logger = logging.getLogger("parser_results")
 
 
+def _get_bot_headers() -> dict:
+    """Получение заголовков для запросов к боту"""
+    return {
+        "X-Service-Token": settings.BOT_SERVICE_TOKEN,
+        "Content-Type": "application/json",
+    }
+
+
+def _send_bot_message(user_id: int, message: str) -> bool:
+    """Отправка сообщения пользователю через бота"""
+    try:
+        payload = {"user_id": user_id, "message": message}
+        response = requests.post(
+            BOT_SEND_MESSAGE_URL,
+            json=payload,
+            headers=_get_bot_headers(),
+            timeout=DEFAULT_TIMEOUT,
+        )
+        return response.status_code == 200
+    except Exception as e:
+        logger.error(f"Failed to send bot message: {e}")
+        return False
+
+
+def _send_bot_alert(alert_data: dict) -> bool:
+    """Отправка алерта пользователю через бота"""
+    try:
+        response = requests.post(
+            BOT_SEND_ALERT_URL,
+            json=alert_data,
+            headers=_get_bot_headers(),
+            timeout=DEFAULT_TIMEOUT,
+        )
+        return response.status_code == 200
+    except Exception as e:
+        logger.error(f"Failed to send bot alert: {e}")
+        return False
+
+
 @shared_task(queue="light")
 def parse_product_universal(product_id: int, shop_id: int, url: str = None):
+    """Универсальный парсинг товара"""
     try:
         service = UniversalParserService()
         result = service.parse_product(product_id, shop_id, url)
@@ -39,7 +89,6 @@ def bulk_parse_all_shops() -> dict:
         total_parsed = 0
         results = {}
 
-        # Получаем все активные магазины
         shops = Shop.objects.filter(is_active=True)
 
         for shop in shops:
@@ -47,11 +96,9 @@ def bulk_parse_all_shops() -> dict:
                 f"Starting bulk parse for shop: {shop.name} ({shop.parser_type})"
             )
 
-            # Получаем все офферы этого магазина
             offers = Offer.objects.filter(shop=shop)
 
             if offers.exists():
-                # Обновляем существующие товары
                 logger.info(
                     f"Updating {offers.count()} existing products for {shop.name}"
                 )
@@ -66,7 +113,6 @@ def bulk_parse_all_shops() -> dict:
                     "parser_type": shop.parser_type,
                 }
             else:
-                # Для новых магазинов запускаем поиск товаров
                 discover_products_for_shop.delay(shop.id)
                 results[shop.name] = {
                     "action": "discover",
@@ -87,7 +133,6 @@ def bulk_parse_all_shops() -> dict:
 @shared_task(queue="light")
 def monitor_favorite_products(user_id: int) -> int:
     """Мониторинг избранных товаров пользователя каждые 2 часа"""
-
     favorites = UserFavorite.objects.filter(user_id=user_id).select_related("product")
     count = 0
 
@@ -102,7 +147,6 @@ def monitor_favorite_products(user_id: int) -> int:
 @shared_task(queue="light")
 def monitor_all_user_favorites() -> int:
     """Мониторинг всех пользовательских избранных товаров"""
-
     users_with_favorites = User.objects.filter(favorites__isnull=False).distinct()
     count = 0
 
@@ -138,7 +182,7 @@ def refresh_product(product_id: int, user_telegram_id: int = None) -> int:
     if user_telegram_id:
         send_refresh_result.apply_async(
             args=[product_id, user_telegram_id],
-            countdown=30,  # Ждем 30 секунд после запуска парсинга
+            countdown=REFRESH_COUNTDOWN,
         )
     return count
 
@@ -147,7 +191,6 @@ def refresh_product(product_id: int, user_telegram_id: int = None) -> int:
 def send_refresh_result(product_id: int, user_telegram_id: int):
     """Отправить результат обновления пользователю"""
     try:
-        # Получаем актуальную цену
         min_offer = (
             Offer.objects.filter(product_id=product_id, is_available=True)
             .order_by("price")
@@ -159,16 +202,7 @@ def send_refresh_result(product_id: int, user_telegram_id: int):
         else:
             message = "❌ Товар больше не доступен"
 
-        # Отправляем в бот
-        bot_url = "http://bot_pricescan:8000/send_message"
-        payload = {"user_id": user_telegram_id, "message": message}
-        headers = {
-            "X-Service-Token": settings.BOT_SERVICE_TOKEN,
-            "Content-Type": "application/json",
-        }
-        requests.post(bot_url, json=payload, headers=headers, timeout=5)
-
-        # ✅ После отправки результата проверяем алерты
+        _send_bot_message(user_telegram_id, message)
         check_alerts_for_product.delay(product_id)
 
     except Exception as e:
@@ -192,7 +226,6 @@ def refresh_all_prices() -> int:
 @shared_task(queue="light")
 def check_alerts_for_product(product_id: int) -> int:
     """Проверить и сработать пользовательские алерты по продукту."""
-    # Текущая минимальная цена
     min_offer = (
         Offer.objects.filter(product_id=product_id, is_available=True)
         .order_by("price")
@@ -210,16 +243,13 @@ def check_alerts_for_product(product_id: int) -> int:
     count = 0
     for alert in triggered:
         try:
-            # Проверяем, что у пользователя есть telegram_id
             if not alert.user.telegram_id:
                 logger.warning(
                     f"User {alert.user_id} has no telegram_id, skipping alert"
                 )
                 continue
 
-            # URL на FastAPI бота
-            bot_url = "http://bot_pricescan:8000/send_alert"
-            payload = {
+            alert_data = {
                 "user_id": alert.user.telegram_id,
                 "product_id": product_id,
                 "price": float(min_offer.price),
@@ -228,62 +258,60 @@ def check_alerts_for_product(product_id: int) -> int:
                 "shop_name": min_offer.shop.name,
                 "alert_id": alert.id,
             }
-            # Добавляем сервисный токен в заголовки
-            headers = {
-                "X-Service-Token": settings.BOT_SERVICE_TOKEN,
-                "Content-Type": "application/json",
-            }
-            requests.post(bot_url, json=payload, headers=headers, timeout=5)
+
+            _send_bot_alert(alert_data)
+
+            logger.info(
+                "ALERT TRIGGER user=%s product=%s price=%s url=%s",
+                alert.user.telegram_id,
+                product_id,
+                min_offer.price,
+                min_offer.url,
+            )
+            alert.last_triggered_at = timezone.now()
+            alert.is_active = False
+            alert.save(update_fields=["last_triggered_at", "is_active"])
+            count += 1
+
         except Exception as e:
             logger.error(f"Failed to send alert to bot: {e}")
-        logger.info(
-            "ALERT TRIGGER user=%s product=%s price=%s url=%s",
-            alert.user.telegram_id,
-            product_id,
-            min_offer.price,
-            min_offer.url,
-        )
-        alert.last_triggered_at = timezone.now()
-        alert.is_active = False  # авто-выключение после срабатывания
-        alert.save(update_fields=["last_triggered_at", "is_active"])
-        count += 1
+
+    return count
 
 
 @shared_task(queue="heavy")
 def discover_products_for_shop(
-    shop_id: int, query: str = "настольная игра", limit: int = 1000
+    shop_id: int, limit: int = DEFAULT_DISCOVERY_LIMIT
 ) -> dict:
+    """Обнаружение новых товаров для магазина"""
     try:
         service = UniversalParserService()
         page_start = 1
-        max_pages_per_call = 12  # максимум страниц за один вызов
         total_found = 0
-        max_total_pages = 50  # максимум страниц всего (50 * 48 = 2400 товаров)
 
         logger.info(f"Starting discovery for shop {shop_id}, target limit: {limit}")
 
-        while total_found < limit and page_start <= max_total_pages:
-            # Вычисляем сколько товаров нужно собрать в этом батче
+        while total_found < limit and page_start <= DEFAULT_MAX_TOTAL_PAGES:
             remaining = limit - total_found
-            batch_limit = min(remaining, 1000)  # максимум 1000 за раз
+            batch_limit = min(remaining, DEFAULT_BATCH_LIMIT)
 
             logger.info(
-                f"Batch: page_start={page_start}, batch_limit={batch_limit}, total_found={total_found}"
+                f"Batch: page_start={page_start}, batch_limit={batch_limit}, "
+                f"total_found={total_found}"
             )
 
-            res = service.discover_products(
+            result = service.discover_products(
                 shop_id,
-                query,
                 limit=batch_limit,
                 page_start=page_start,
-                max_pages=max_pages_per_call,
+                max_pages=DEFAULT_MAX_PAGES_PER_CALL,
             )
 
-            if not res.get("ok"):
-                logger.error(f"Discovery failed at page {page_start}: {res}")
-                return res
+            if not result.get("ok"):
+                logger.error(f"Discovery failed at page {page_start}: {result}")
+                return result
 
-            found = res.get("products_found", 0)
+            found = result.get("products_found", 0)
             total_found += found
 
             logger.info(f"Batch result: found={found}, total_found={total_found}")
@@ -292,8 +320,7 @@ def discover_products_for_shop(
                 logger.info("No more products found, stopping")
                 break
 
-            # Переходим к следующей странице
-            page_start += max_pages_per_call
+            page_start += DEFAULT_MAX_PAGES_PER_CALL
 
         logger.info(f"Discovery completed: total_found={total_found}")
         return {"ok": True, "total_found": total_found}
@@ -331,7 +358,7 @@ def health_check_parsers() -> dict:
 
     for parser_type, endpoint in service.parser_service.parser_endpoints.items():
         try:
-            response = requests.get(f"{endpoint}/health", timeout=10)
+            response = requests.get(f"{endpoint}/health", timeout=DEFAULT_TIMEOUT)
             results[parser_type] = {
                 "status": "ok" if response.status_code == 200 else "error",
                 "response_time": response.elapsed.total_seconds(),
@@ -341,91 +368,3 @@ def health_check_parsers() -> dict:
             results[parser_type] = {"status": "error", "error": str(e)}
 
     return {"ok": True, "parsers": results}
-
-
-# ________________временая таска__________
-from celery import shared_task
-from django.db.models import Count
-
-from .models import Category, Product, Publisher
-
-
-@shared_task(queue="heavy")
-def purge_products_not_in_both_shops(
-    dry_run: bool = False, max_keep: int = 100
-) -> dict:
-    """
-    Временная чистка:
-      - удаляет товары, у которых офферы есть менее чем в 2 магазинах
-      - оставляет только max_keep товаров (по умолчанию 100)
-      - после этого удаляет пустые издательства и категории
-    """
-    logger.info(f"=== STARTING PURGE TASK: dry_run={dry_run}, max_keep={max_keep} ===")
-
-    stats = {
-        "products_checked": 0,
-        "products_to_delete": 0,
-        "products_deleted": 0,
-        "publishers_deleted": 0,
-        "categories_deleted": 0,
-        "max_keep": max_keep,
-    }
-
-    try:
-        logger.info("Step 1: Getting products with offers...")
-        # по офферам считаем количество уникальных магазинов на продукт
-        by_product = Offer.objects.values("product_id").annotate(
-            shop_cnt=Count("shop", distinct=True)
-        )
-
-        logger.info(f"Found {len(by_product)} products with offers")
-
-        # Сначала фильтруем по количеству магазинов (>= 2)
-        keep_ids = {row["product_id"] for row in by_product if row["shop_cnt"] >= 2}
-
-        logger.info(f"Products with 2+ shops: {len(keep_ids)}")
-
-        # Если товаров больше max_keep, берем только первые max_keep
-        if len(keep_ids) > max_keep:
-            # Сортируем по ID для стабильности (можно изменить на другой критерий)
-            keep_ids = sorted(keep_ids)[:max_keep]
-            logger.info(
-                f"Limited to {max_keep} products from {len(keep_ids)} eligible products"
-            )
-
-        logger.info("Step 2: Getting all product IDs...")
-        all_ids = set(Product.objects.values_list("id", flat=True))
-        to_delete_ids = list(all_ids - set(keep_ids))
-
-        stats["products_checked"] = len(all_ids)
-        stats["products_to_delete"] = len(to_delete_ids)
-        stats["products_kept"] = len(keep_ids)
-
-        logger.info(f"Stats: {stats}")
-
-        if not dry_run and to_delete_ids:
-            logger.info(f"Step 3: Deleting {len(to_delete_ids)} products...")
-            stats["products_deleted"] = Product.objects.filter(
-                id__in=to_delete_ids
-            ).count()
-            Product.objects.filter(id__in=to_delete_ids).delete()
-            logger.info("Products deleted successfully")
-
-            logger.info("Step 4: Cleaning up empty publishers and categories...")
-            # после удаления товаров — подчистить пустые связи
-            stats["publishers_deleted"] = (
-                Publisher.objects.annotate(n=Count("products")).filter(n=0).delete()[0]
-            )
-            stats["categories_deleted"] = (
-                Category.objects.annotate(n=Count("products")).filter(n=0).delete()[0]
-            )
-            logger.info("Cleanup completed")
-        else:
-            logger.info("Dry run mode - no products deleted")
-
-        logger.info(f"=== PURGE TASK COMPLETED: {stats} ===")
-        return stats
-
-    except Exception as e:
-        logger.error(f"=== PURGE TASK ERROR: {e} ===")
-        return {"ok": False, "error": str(e)}

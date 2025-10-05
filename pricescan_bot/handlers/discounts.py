@@ -22,7 +22,6 @@ async def btn_discounts(message: Message, container):
         return await message.answer("Ошибка авторизации. Попробуйте позже.")
 
     try:
-        # Получаем товары со скидками
         offers = await container.api_client.get_discounts(limit=DEFAULT_LIMIT)
     except Exception:
         logger.exception("Failed to get discounts")
@@ -33,12 +32,9 @@ async def btn_discounts(message: Message, container):
 
     await message.answer("🔥 Товары со скидками:")
 
-    # Отправляем отдельное сообщение для каждого товара
     for offer in offers:
-        # Форматируем сообщение с информацией о скидке
         text = format_discount_offer_text(offer)
 
-        # Создаем кнопки для товара
         keyboard = offer_actions_kb(offer["product"], offer["url"], offer["currency"])
 
         await message.answer(
@@ -50,14 +46,12 @@ async def btn_discounts(message: Message, container):
 
 def format_discount_offer_text(offer: dict) -> str:
     """Форматирует текст товара со скидкой"""
-    # Обрабатываем множественные издатели и категории
     publishers = offer.get("product_publishers", [])
     categories = offer.get("product_categories", [])
 
     publishers_str = ", ".join(publishers) if publishers else "Неизвестно"
     categories_str = ", ".join(categories) if categories else "Неизвестно"
 
-    # Добавляем информацию о скидке
     discount_info = ""
     if offer.get("discount_percentage"):
         discount_info = f"\n🔥 Скидка: {offer['discount_percentage']:.1f}%"

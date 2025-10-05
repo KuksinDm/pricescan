@@ -30,13 +30,13 @@ class UserFavorite(models.Model):
         unique_together = ["user", "product"]
 
 
-class SearchHistory(models.Model):
-    user = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name="search_history"
-    )
-    query = models.CharField(max_length=500)
-    search_date = models.DateTimeField(auto_now_add=True)
-    results_count = models.PositiveIntegerField(default=0)
+# class SearchHistory(models.Model):
+#     user = models.ForeignKey(
+#         User, on_delete=models.CASCADE, related_name="search_history"
+#     )
+#     query = models.CharField(max_length=500)
+#     search_date = models.DateTimeField(auto_now_add=True)
+#     results_count = models.PositiveIntegerField(default=0)
 
-    class Meta:
-        ordering = ["-search_date"]
+#     class Meta:
+#         ordering = ["-search_date"]
