@@ -4,7 +4,7 @@ import os
 
 
 def setup_logging(log_dir: str | None = None, level: str | int = "INFO") -> None:
-    """Настройка логирования для бота с отдельными файлами для разных типов логов.
+    """Настройка логирования для BeautifulSoup парсера с отдельными файлами для разных типов логов.
 
     Идемпотентная функция: можно вызывать многократно без проблем.
     """
@@ -12,7 +12,6 @@ def setup_logging(log_dir: str | None = None, level: str | int = "INFO") -> None
         return
 
     if isinstance(level, str):
-        # В 3.12 использование getLevelName(str) не рекомендуется
         mapping = getattr(logging, "getLevelNamesMapping", None)
         if mapping:
             log_level = logging.getLevelNamesMapping().get(level.upper(), logging.INFO)
@@ -37,12 +36,14 @@ def setup_logging(log_dir: str | None = None, level: str | int = "INFO") -> None
 
     # Настройка файлового логирования
     if not log_dir:
-        log_dir = os.path.join(os.getcwd(), "logs", "bot")  # Отдельная папка для бота
+        log_dir = os.path.join(
+            os.getcwd(), "logs", "parser"
+        )  # Отдельная папка для парсера
     os.makedirs(log_dir, exist_ok=True)
 
     # Основной лог файл для всех сообщений
     main_handler = logging.handlers.RotatingFileHandler(
-        filename=os.path.join(log_dir, "bot.log"),
+        filename=os.path.join(log_dir, "parser.log"),
         maxBytes=10 * 1024 * 1024,  # 10MB
         backupCount=10,
         encoding="utf-8",
@@ -53,7 +54,7 @@ def setup_logging(log_dir: str | None = None, level: str | int = "INFO") -> None
 
     # Отдельный файл только для ошибок и критических сообщений
     error_handler = logging.handlers.RotatingFileHandler(
-        filename=os.path.join(log_dir, "bot_errors.log"),
+        filename=os.path.join(log_dir, "parser_errors.log"),
         maxBytes=5 * 1024 * 1024,  # 5MB
         backupCount=5,
         encoding="utf-8",
@@ -62,30 +63,29 @@ def setup_logging(log_dir: str | None = None, level: str | int = "INFO") -> None
     error_handler.setFormatter(formatter)
     logger.addHandler(error_handler)
 
-    # Отдельный файл для пользовательских действий (поиск, алерты, избранное)
-    user_actions_handler = logging.handlers.RotatingFileHandler(
-        filename=os.path.join(log_dir, "bot_user_actions.log"),
+    # Отдельный файл для результатов парсинга
+    results_handler = logging.handlers.RotatingFileHandler(
+        filename=os.path.join(log_dir, "parser_results.log"),
         maxBytes=5 * 1024 * 1024,  # 5MB
         backupCount=5,
         encoding="utf-8",
     )
-    user_actions_handler.setLevel(logging.INFO)
-    user_actions_handler.setFormatter(formatter)
+    results_handler.setLevel(logging.INFO)
+    results_handler.setFormatter(formatter)
 
-    # Настраиваем отдельный логгер для пользовательских действий
-    user_logger = logging.getLogger("user_actions")
-    user_logger.addHandler(user_actions_handler)
-    user_logger.setLevel(logging.INFO)
-    user_logger.propagate = False  # Не дублировать в основной лог
+    # Настраиваем отдельный логгер для результатов парсинга
+    results_logger = logging.getLogger("parser_results")
+    results_logger.addHandler(results_handler)
+    results_logger.setLevel(logging.INFO)
+    results_logger.propagate = False  # Не дублировать в основной лог
 
     # Уменьшаем шум от библиотек
-    logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
-    logging.getLogger("aiogram").setLevel(logging.INFO)
-    logging.getLogger("httpx").setLevel(logging.WARNING)  # Для API запросов
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("requests").setLevel(logging.WARNING)
 
     setup_logging._configured = True  # type: ignore[attr-defined]
 
 
-def get_user_actions_logger() -> logging.Logger:
-    """Получить логгер для пользовательских действий"""
-    return logging.getLogger("user_actions")
+def get_results_logger() -> logging.Logger:
+    """Получить логгер для результатов парсинга"""
+    return logging.getLogger("parser_results")

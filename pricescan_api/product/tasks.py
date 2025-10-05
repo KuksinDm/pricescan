@@ -115,17 +115,14 @@ def monitor_all_user_favorites() -> int:
 
 
 def _dispatch_for_shop(product_id: int, shop: Shop):
-    """Диспетчер парсеров по типу магазина - теперь универсальный"""
-    # Получаем URL из существующего оффера
+    """Диспетчер парсеров по типу магазина - универсальный"""
     offer = Offer.objects.filter(product_id=product_id, shop=shop).first()
     url = offer.url if offer else None
-
-    # Все парсеры теперь используют универсальный сервис
     parse_product_universal.delay(product_id, shop.id, url)
 
 
 @shared_task(queue="light")
-def refresh_product(product_id: int) -> int:
+def refresh_product(product_id: int, user_telegram_id: int = None) -> int:
     """Запланировать обновление по всем активным магазинам, где есть офферы продукта."""
     shops: Iterable[Shop] = Shop.objects.filter(
         is_active=True, offer__product_id=product_id
@@ -138,9 +135,44 @@ def refresh_product(product_id: int) -> int:
 
     logger.info("Queued %s parse jobs for product=%s", count, product_id)
 
-    # После обновления — проверяем алерты
-    check_alerts_for_product.delay(product_id)
+    if user_telegram_id:
+        send_refresh_result.apply_async(
+            args=[product_id, user_telegram_id],
+            countdown=30,  # Ждем 30 секунд после запуска парсинга
+        )
     return count
+
+
+@shared_task(queue="light")
+def send_refresh_result(product_id: int, user_telegram_id: int):
+    """Отправить результат обновления пользователю"""
+    try:
+        # Получаем актуальную цену
+        min_offer = (
+            Offer.objects.filter(product_id=product_id, is_available=True)
+            .order_by("price")
+            .first()
+        )
+
+        if min_offer:
+            message = f"💰 Обновлено! Цена: {min_offer.price} {min_offer.currency}"
+        else:
+            message = "❌ Товар больше не доступен"
+
+        # Отправляем в бот
+        bot_url = "http://bot_pricescan:8000/send_message"
+        payload = {"user_id": user_telegram_id, "message": message}
+        headers = {
+            "X-Service-Token": settings.BOT_SERVICE_TOKEN,
+            "Content-Type": "application/json",
+        }
+        requests.post(bot_url, json=payload, headers=headers, timeout=5)
+
+        # ✅ После отправки результата проверяем алерты
+        check_alerts_for_product.delay(product_id)
+
+    except Exception as e:
+        logger.error(f"Failed to send refresh result: {e}")
 
 
 @shared_task(queue="light")
@@ -188,10 +220,12 @@ def check_alerts_for_product(product_id: int) -> int:
             # URL на FastAPI бота
             bot_url = "http://bot_pricescan:8000/send_alert"
             payload = {
-                "user_id": alert.user.telegram_id,  # ← Используем telegram_id вместо user_id
+                "user_id": alert.user.telegram_id,
                 "product_id": product_id,
                 "price": float(min_offer.price),
+                "currency": min_offer.currency,
                 "url": min_offer.url,
+                "shop_name": min_offer.shop.name,
                 "alert_id": alert.id,
             }
             # Добавляем сервисный токен в заголовки
@@ -204,7 +238,7 @@ def check_alerts_for_product(product_id: int) -> int:
             logger.error(f"Failed to send alert to bot: {e}")
         logger.info(
             "ALERT TRIGGER user=%s product=%s price=%s url=%s",
-            alert.user.telegram_id,  # ← И в логах тоже telegram_id
+            alert.user.telegram_id,
             product_id,
             min_offer.price,
             min_offer.url,
@@ -219,22 +253,53 @@ def check_alerts_for_product(product_id: int) -> int:
 def discover_products_for_shop(
     shop_id: int, query: str = "настольная игра", limit: int = 1000
 ) -> dict:
-    """Обнаружение новых товаров для конкретного магазина"""
     try:
         service = UniversalParserService()
-        result = service.discover_products(shop_id, query, limit)
+        page_start = 1
+        max_pages_per_call = 12  # максимум страниц за один вызов
+        total_found = 0
+        max_total_pages = 50  # максимум страниц всего (50 * 48 = 2400 товаров)
 
-        if result["ok"]:
+        logger.info(f"Starting discovery for shop {shop_id}, target limit: {limit}")
+
+        while total_found < limit and page_start <= max_total_pages:
+            # Вычисляем сколько товаров нужно собрать в этом батче
+            remaining = limit - total_found
+            batch_limit = min(remaining, 1000)  # максимум 1000 за раз
+
             logger.info(
-                f"Shop {shop_id}: found {result['products_found']} products, "
-                f"created {result['products_created']} new products, "
-                f"created {result['offers_created']} new offers"
+                f"Batch: page_start={page_start}, batch_limit={batch_limit}, total_found={total_found}"
             )
 
-        return result
+            res = service.discover_products(
+                shop_id,
+                query,
+                limit=batch_limit,
+                page_start=page_start,
+                max_pages=max_pages_per_call,
+            )
+
+            if not res.get("ok"):
+                logger.error(f"Discovery failed at page {page_start}: {res}")
+                return res
+
+            found = res.get("products_found", 0)
+            total_found += found
+
+            logger.info(f"Batch result: found={found}, total_found={total_found}")
+
+            if found == 0:
+                logger.info("No more products found, stopping")
+                break
+
+            # Переходим к следующей странице
+            page_start += max_pages_per_call
+
+        logger.info(f"Discovery completed: total_found={total_found}")
+        return {"ok": True, "total_found": total_found}
 
     except Exception as e:
-        logger.error(f"Discover products for shop {shop_id} error: {e}")
+        logger.error(f"discover_products_for_shop error: {e}")
         return {"ok": False, "error": str(e)}
 
 
@@ -264,7 +329,6 @@ def health_check_parsers() -> dict:
     service = UniversalParserService()
     results = {}
 
-    # Исправляем обращение к parser_endpoints
     for parser_type, endpoint in service.parser_service.parser_endpoints.items():
         try:
             response = requests.get(f"{endpoint}/health", timeout=10)
@@ -277,3 +341,51 @@ def health_check_parsers() -> dict:
             results[parser_type] = {"status": "error", "error": str(e)}
 
     return {"ok": True, "parsers": results}
+
+
+# ________________временая таска__________
+from celery import shared_task
+from django.db.models import Count
+
+from .models import Category, Product, Publisher
+
+
+@shared_task(queue="heavy")
+def purge_products_not_in_both_shops(dry_run: bool = False) -> dict:
+    """
+    Временная чистка:
+      - удаляет товары, у которых офферы есть менее чем в 2 магазинах
+      - после этого удаляет пустые издательства и категории
+    """
+    stats = {
+        "products_checked": 0,
+        "products_to_delete": 0,
+        "products_deleted": 0,
+        "publishers_deleted": 0,
+        "categories_deleted": 0,
+    }
+
+    # по офферам считаем количество уникальных магазинов на продукт
+    by_product = Offer.objects.values("product_id").annotate(
+        shop_cnt=Count("shop", distinct=True)
+    )
+    keep_ids = {row["product_id"] for row in by_product if row["shop_cnt"] >= 2}
+    all_ids = set(Product.objects.values_list("id", flat=True))
+    to_delete_ids = list(all_ids - keep_ids)
+
+    stats["products_checked"] = len(all_ids)
+    stats["products_to_delete"] = len(to_delete_ids)
+
+    if not dry_run and to_delete_ids:
+        stats["products_deleted"] = Product.objects.filter(id__in=to_delete_ids).count()
+        Product.objects.filter(id__in=to_delete_ids).delete()
+
+        # после удаления товаров — подчистить пустые связи
+        stats["publishers_deleted"] = (
+            Publisher.objects.annotate(n=Count("products")).filter(n=0).delete()[0]
+        )
+        stats["categories_deleted"] = (
+            Category.objects.annotate(n=Count("products")).filter(n=0).delete()[0]
+        )
+
+    return stats

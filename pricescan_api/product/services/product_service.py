@@ -1,11 +1,12 @@
 import logging
+import re
 from typing import Dict, List, Optional, Tuple
 
 from django.db import transaction
 from django.utils.text import slugify
 from unidecode import unidecode
 
-from ..models import Author, Category, Product, Publisher
+from ..models import Category, Product, Publisher
 
 logger = logging.getLogger("parser_results")
 
@@ -32,6 +33,7 @@ class ProductService:
     def create_or_update_product_from_data(self, product_data: Dict, shop) -> Dict:
         """Создание или обновление товара из данных парсера"""
         logger.info("=== PRODUCT SERVICE: Creating/updating product ===")
+        logger.info(f"Product data keys: {list(product_data.keys())}")
         logger.info(f"Product data: {product_data}")
 
         with transaction.atomic():
@@ -70,18 +72,31 @@ class ProductService:
 
     def _setup_product_relations(self, product: Product, product_data: Dict):
         """Настройка связей для нового продукта"""
-        # Авторы
-        authors = self._parse_authors(product_data.get("manufacturer", "Неизвестно"))
-        product.authors.set(authors)
+        logger.info("=== SETTING UP PRODUCT RELATIONS ===")
+        logger.info(f"Product data: {product_data}")
 
-        # Издатели
-        publishers = self._parse_publishers(
-            product_data.get("manufacturer", "Неизвестно")
-        )
+        # Производители (издатели)
+        manufacturers = product_data.get("manufacturers", [])
+        logger.info(f"Manufacturers from data: {manufacturers}")
+
+        if manufacturers:
+            publishers = self._parse_publishers(", ".join(manufacturers))
+            logger.info(f"Parsed publishers: {[p.name for p in publishers]}")
+        else:
+            publishers = self._parse_publishers("Неизвестно")
+            logger.info(f"Default publishers: {[p.name for p in publishers]}")
         product.publishers.set(publishers)
 
         # Категории
-        categories = self._parse_categories("Настольные игры")
+        categories_data = product_data.get("categories", [])
+        logger.info(f"Categories from data: {categories_data}")
+
+        if categories_data:
+            categories = self._parse_categories(", ".join(categories_data))
+            logger.info(f"Parsed categories: {[c.name for c in categories]}")
+        else:
+            categories = self._parse_categories("Настольные игры")
+            logger.info(f"Default categories: {[c.name for c in categories]}")
         product.categories.set(categories)
 
         # Игровые характеристики
@@ -122,24 +137,6 @@ class ProductService:
                 product.playtime_min = playtime
                 updated_fields.append("playtime_min")
 
-    def _parse_authors(self, author_str: str) -> List[Author]:
-        """Парсинг авторов"""
-        if not author_str:
-            author_str = "Неизвестно"
-
-        # Разделяем по запятым если несколько авторов
-        author_names = [name.strip() for name in author_str.split(",")]
-        authors = []
-
-        for name in author_names:
-            if name:
-                author, _ = Author.objects.get_or_create(
-                    name=name, defaults={"slug": slugify(unidecode(name))}
-                )
-                authors.append(author)
-
-        return authors if authors else [self._get_or_create_author("Неизвестно")]
-
     def _parse_publishers(self, publisher_str: str) -> List[Publisher]:
         """Парсинг издателей"""
         if not publisher_str:
@@ -159,6 +156,14 @@ class ProductService:
         return (
             publishers if publishers else [self._get_or_create_publisher("Неизвестно")]
         )
+
+    def _get_or_create_publisher(self, name: str) -> Publisher:
+        """Получение или создание издателя"""
+        safe_name = name or "Неизвестно"
+        publisher, created = Publisher.objects.get_or_create(
+            name=safe_name, defaults={"slug": slugify(unidecode(safe_name))}
+        )
+        return publisher
 
     def _parse_categories(self, category_str: str) -> List[Category]:
         """Парсинг категорий"""
@@ -180,21 +185,13 @@ class ProductService:
             categories if categories else [self._get_or_create_category("Неизвестно")]
         )
 
-    def _get_or_create_author(self, name: str) -> Author:
-        """Получение или создание автора"""
-        safe_name = name or "Неизвестно"
-        author, created = Author.objects.get_or_create(
-            name=safe_name, defaults={"slug": slugify(unidecode(safe_name))}
-        )
-        return author
-
-    def _get_or_create_publisher(self, name: str) -> Publisher:
-        """Получение или создание издателя"""
-        safe_name = name or "Неизвестно"
-        publisher, created = Publisher.objects.get_or_create(
-            name=safe_name, defaults={"slug": slugify(unidecode(safe_name))}
-        )
-        return publisher
+    # def _get_or_create_publisher(self, name: str) -> Publisher:
+    #     """Получение или создание издателя"""
+    #     safe_name = name or "Неизвестно"
+    #     publisher, created = Publisher.objects.get_or_create(
+    #         name=safe_name, defaults={"slug": slugify(unidecode(safe_name))}
+    #     )
+    #     return publisher
 
     def _get_or_create_category(self, name: str) -> Category:
         """Получение или создание категории"""
@@ -205,24 +202,48 @@ class ProductService:
         return category
 
     def _parse_players_range(self, players_str: str) -> Optional[Tuple[int, int]]:
-        """Парсинг диапазона игроков"""
         if not players_str:
             return None
+        s = str(players_str).strip().lower().replace("–", "-").replace("—", "-")
 
-        try:
-            if "-" in players_str:
-                parts = players_str.split("-")
-                if len(parts) == 2:
-                    min_players = int(parts[0].strip())
-                    max_players = int(parts[1].strip())
-                    return (min_players, max_players)
-            else:
-                players = int(players_str.strip())
-                return (players, players)
-        except (ValueError, IndexError) as e:
-            logger.debug(f"Failed to parse players range '{players_str}': {e}")
+        m = re.search(r"от\s*(\d+)\s*до\s*(\d+)", s) or re.search(
+            r"(\d+)\s*-\s*(\d+)", s
+        )
+        if m:
+            a, b = int(m.group(1)), int(m.group(2))
+            return (min(a, b), max(a, b))
+
+        m = re.search(r"(\d+)\s*\+", s)
+        if m:
+            n = int(m.group(1))
+            return (n, n)
+
+        m = re.search(r"\b(\d+)\b", s)
+        if m:
+            n = int(m.group(1))
+            return (n, n)
 
         return None
+
+    # def _parse_players_range(self, players_str: str) -> Optional[Tuple[int, int]]:
+    #     """Парсинг диапазона игроков"""
+    #     if not players_str:
+    #         return None
+
+    #     try:
+    #         if "-" in players_str:
+    #             parts = players_str.split("-")
+    #             if len(parts) == 2:
+    #                 min_players = int(parts[0].strip())
+    #                 max_players = int(parts[1].strip())
+    #                 return (min_players, max_players)
+    #         else:
+    #             players = int(players_str.strip())
+    #             return (players, players)
+    #     except (ValueError, IndexError) as e:
+    #         logger.debug(f"Failed to parse players range '{players_str}': {e}")
+
+    #     return None
 
     def _parse_age(self, age_str: str) -> Optional[int]:
         """Парсинг возраста"""
@@ -236,15 +257,43 @@ class ProductService:
             return None
 
     def _parse_playtime(self, playtime_str: str) -> Optional[int]:
-        """Парсинг времени игры"""
+        """Парсинг времени игры → минимальные минуты"""
         if not playtime_str:
             return None
 
-        try:
-            if "-" in playtime_str:
-                parts = playtime_str.split("-")
-                return int(parts[0].strip())
-            else:
-                return int(playtime_str.strip())
-        except (ValueError, IndexError):
-            return None
+        s = playtime_str.lower().replace("\xa0", " ").strip()
+
+        # 1) "1 ч 30 мин"
+        m = re.search(r"(\d+)\s*ч(?:ас(?:а|ов)?)?\s*(\d+)\s*мин", s)
+        if m:
+            return int(m.group(1)) * 60 + int(m.group(2))
+
+        # 2) "1–2 часа" / "1-2 ч" / "1 ч"
+        m = re.search(r"(\d+)\s*(?:[–-]\s*\d+\s*)?(?:ч|час(?:а|ов)?)", s)
+        if m:
+            return int(m.group(1)) * 60
+
+        # 3) "от 30 мин", "30–60 мин", "30 мин", "от 20 до 90 минут"
+        m = re.search(r"(?:от\s*)?(\d+)\s*(?:до\s*\d+\s*)?мин", s) or re.search(
+            r"(?:от\s*)?(\d+)\s*(?:[–-]\s*\d+)?\s*мин", s
+        )
+        if m:
+            return int(m.group(1))
+
+        # 4) "30–60" / "90-120" (без единиц)
+        m = re.search(r"(\d+)\s*[–-]\s*\d+", s)
+        if m:
+            return int(m.group(1))
+
+        # 5) "60+" (минут/часы)
+        m = re.search(r"(\d+)\s*\+", s)
+        if m:
+            n = int(m.group(1))
+            return n * 60 if re.search(r"(?:^|\s)(?:ч|час)", s) else n
+
+        # 6) Фолбэк: первое число; если рядом "ч" — считаем часами
+        m = re.search(r"(\d+)", s)
+        if m:
+            n = int(m.group(1))
+            return n * 60 if re.search(r"(?:^|\s)(?:ч|час)", s) else n
+        return None

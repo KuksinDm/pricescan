@@ -21,19 +21,6 @@ class Category(models.Model):
         verbose_name_plural = "Категории"
 
 
-class Author(models.Model):
-    name = models.CharField(max_length=200)
-    slug = models.SlugField(max_length=200)
-
-    def save(self, *args, **kwargs):
-        if not self.slug:
-            self.slug = slugify(unidecode(self.name))
-        super().save(*args, **kwargs)
-
-    def __str__(self):
-        return self.name
-
-
 class Publisher(models.Model):
     name = models.CharField(max_length=200)
     slug = models.SlugField(max_length=200)
@@ -55,8 +42,8 @@ class Product(models.Model):
     # Основная информация о книге
     title = models.CharField(max_length=500)
     slug = models.SlugField(max_length=200, unique=True)
+
     # Множественные связи
-    authors = models.ManyToManyField(Author, related_name="products", blank=True)
     publishers = models.ManyToManyField(Publisher, related_name="products", blank=True)
     categories = models.ManyToManyField(Category, related_name="products", blank=True)
 

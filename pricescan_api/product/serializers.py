@@ -1,7 +1,6 @@
 from rest_framework import serializers
 
 from .models import (
-    Author,
     Category,
     Offer,
     PriceAlert,
@@ -15,12 +14,6 @@ from .models import (
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
-        fields = ("id", "name", "slug")
-
-
-class AuthorSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Author
         fields = ("id", "name", "slug")
 
 
@@ -40,9 +33,9 @@ class OfferSerializer(serializers.ModelSerializer):
     shop = ShopSerializer(read_only=True)
     product_title = serializers.CharField(source="product.title", read_only=True)
     # ManyToMany поля - показываем всех авторов/издателей/категории
-    product_authors = serializers.SerializerMethodField()
     product_publishers = serializers.SerializerMethodField()
     product_categories = serializers.SerializerMethodField()
+
     min_players = serializers.IntegerField(source="product.min_players", read_only=True)
     max_players = serializers.IntegerField(source="product.max_players", read_only=True)
     playtime_min = serializers.IntegerField(
@@ -56,7 +49,6 @@ class OfferSerializer(serializers.ModelSerializer):
             "id",
             "product",
             "product_title",
-            "product_authors",
             "product_publishers",
             "product_categories",
             "min_players",
@@ -70,10 +62,6 @@ class OfferSerializer(serializers.ModelSerializer):
             "url",
             "last_updated",
         )
-
-    def get_product_authors(self, obj):
-        """Возвращает всех авторов"""
-        return [author.name for author in obj.product.authors.all()]
 
     def get_product_publishers(self, obj):
         """Возвращает всех издателей"""
@@ -91,7 +79,6 @@ class PriceHistorySerializer(serializers.ModelSerializer):
 
 
 class ProductSerializer(serializers.ModelSerializer):
-    authors = AuthorSerializer(many=True, read_only=True)
     publishers = PublisherSerializer(many=True, read_only=True)
     categories = CategorySerializer(many=True, read_only=True)
     min_price = serializers.DecimalField(
@@ -105,7 +92,6 @@ class ProductSerializer(serializers.ModelSerializer):
             "id",
             "title",
             "slug",
-            "authors",
             "publishers",
             "categories",
             "min_players",

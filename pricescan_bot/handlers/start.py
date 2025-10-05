@@ -1,23 +1,38 @@
+import logging
+
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
-from ..api import ApiClient
 from ..utils.auth import ensure_jwt
 from ..utils.keyboards import main_menu_kb
 from ..utils.texts import HELP_TEXT, WELCOME_TEXT
 
+router = Router()
+logger = logging.getLogger(__name__)
 
-def build_router() -> Router:
-    router = Router()
 
-    @router.message(Command("start"))
-    async def cmd_start(message: Message, api: ApiClient):
-        await ensure_jwt(message, api)
+@router.message(Command("start"))
+async def cmd_start(message: Message, container):
+    """Обработчик команды /start - приветствие нового пользователя"""
+    logger.info(f"User {message.from_user.id} started the bot")
+
+    try:
+        await ensure_jwt(message, container.api_client)
         await message.answer(WELCOME_TEXT, reply_markup=main_menu_kb())
+    except Exception:
+        logger.exception("Failed to ensure JWT for start command")
+        await message.answer("Ошибка авторизации. Попробуйте позже.")
 
-    @router.message(Command("help"))
-    async def cmd_help(message: Message):
+
+@router.message(Command("help"))
+async def cmd_help(message: Message, container):
+    """Обработчик команды /help - показывает справку"""
+    logger.info(f"User {message.from_user.id} requested help via command")
+
+    try:
+        await ensure_jwt(message, container.api_client)
         await message.answer(HELP_TEXT, reply_markup=main_menu_kb())
-
-    return router
+    except Exception:
+        logger.exception("Failed to ensure JWT for help command")
+        await message.answer("Ошибка авторизации. Попробуйте позже.")

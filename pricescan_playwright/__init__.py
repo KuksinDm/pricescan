@@ -1,6 +1,4 @@
 from .parser.playwright_parser import PlaywrightParser
+from .settings import PlaywrightSettings
 
-__version__ = "2.0.0"
-__all__ = [
-    "PlaywrightParser",
-]
+__all__ = ["PlaywrightParser", "PlaywrightSettings"]

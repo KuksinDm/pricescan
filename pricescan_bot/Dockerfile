@@ -9,6 +9,4 @@ RUN pip install -U pip uv && uv pip install --system .
 # пакет целиком в подпапку
 COPY . /app/pricescan_bot
 
-
-# CMD ["python", "-m", "pricescan_bot.main"]
 CMD ["python", "-m", "pricescan_bot", "api", "0.0.0.0", "8000"]

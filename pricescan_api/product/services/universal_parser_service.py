@@ -62,25 +62,40 @@ class UniversalParserService:
             return {"ok": False, "error": str(e)}
 
     def discover_products(
-        self, shop_id: int, query: str = "настольная игра", limit: int = 1000
+        self,
+        shop_id: int,
+        query: str = "настольная игра",
+        limit: int = 1000,
+        page_start: int = 1,
+        max_pages: int | None = 12,
     ) -> Dict:
         """Обнаружение новых товаров"""
         try:
             logger.info(
-                f"discover_products called: shop_id={shop_id}, query={query}, limit={limit}"
+                f"discover_products called: shop_id={shop_id}, query={query}, "
+                f"limit={limit}"
             )
             shop = Shop.objects.get(id=shop_id)
             shop_url = shop.domain
             logger.info(
-                f"Shop found: {shop.name}, parser_type={shop.parser_type}, domain={shop.domain}"
+                f"Shop found: {shop.name}, parser_type={shop.parser_type}, "
+                f"domain={shop.domain}"
             )
 
             # Парсинг каталога через парсер
             logger.info(
-                f"Calling parser_service.parse_catalog with: parser_type={shop.parser_type}, shop_url={shop_url}, limit={limit}, shop_name={shop.name}"
+                f"Calling parser_service.parse_catalog with: "
+                f"parser_type={shop.parser_type}, shop_url={shop_url}, "
+                f"limit={limit}, shop_name={shop.name}"
             )
             catalog_result = self.parser_service.parse_catalog(
-                shop.parser_type, shop_url, limit, shop.name
+                shop.parser_type,
+                shop_url,
+                limit=limit,           # пробрасываем фактический лимит
+                shop_name=shop.name,
+                page_start=page_start, # новый аргумент
+                max_pages=max_pages,   # новый аргумент
+                detail=True,
             )
             logger.info(f"Catalog result: {catalog_result}")
             if not catalog_result.get("ok", False):

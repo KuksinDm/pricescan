@@ -6,14 +6,15 @@ from aiogram.types import (
 )
 from aiogram.utils.keyboard import ReplyKeyboardBuilder
 
-from .texts import ALERTS_BTN, FAV_BTN, HELP_BTN, HISTORY_BTN, SEARCH_BTN
+from .texts import ALERTS_BTN, DISCOUNTS_BTN, FAV_BTN, HELP_BTN, SEARCH_BTN
 
 
 def main_menu_kb() -> ReplyKeyboardMarkup:
+    """Создает главное меню бота"""
     kb = ReplyKeyboardBuilder()
     kb.row(KeyboardButton(text=SEARCH_BTN), width=1)
     kb.row(KeyboardButton(text=FAV_BTN), KeyboardButton(text=ALERTS_BTN), width=2)
-    kb.row(KeyboardButton(text=HISTORY_BTN), KeyboardButton(text=HELP_BTN), width=2)
+    kb.row(KeyboardButton(text=DISCOUNTS_BTN), KeyboardButton(text=HELP_BTN), width=2)
     return kb.as_markup(
         resize_keyboard=True,
         is_persistent=True,
@@ -21,7 +22,8 @@ def main_menu_kb() -> ReplyKeyboardMarkup:
     )
 
 
-def offer_actions_kb(product_id: int, url: str, currency: str):
+def offer_actions_kb(product_id: int, url: str, currency: str) -> InlineKeyboardMarkup:
+    """Создает клавиатуру с действиями для товара"""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -44,31 +46,3 @@ def offer_actions_kb(product_id: int, url: str, currency: str):
             [InlineKeyboardButton(text="Открыть в магазине", url=url)],
         ]
     )
-
-
-# Reply-клавиатуры для режимов выбора
-FAV_DELETE_SELECTED = "Удалить выбранные"
-ALERT_ON_SELECTED = "Включить выбранные"
-ALERT_OFF_SELECTED = "Выключить выбранные"
-BACK_BTN = "Назад"
-
-
-def fav_actions_kb() -> ReplyKeyboardMarkup:
-    kb = ReplyKeyboardBuilder()
-    kb.row(KeyboardButton(text=SEARCH_BTN), width=1)
-    kb.row(KeyboardButton(text=FAV_DELETE_SELECTED), width=1)
-    kb.row(KeyboardButton(text=BACK_BTN), width=1)
-    return kb.as_markup(resize_keyboard=True, is_persistent=True)
-
-
-def alert_actions_kb() -> ReplyKeyboardMarkup:
-    kb = ReplyKeyboardBuilder()
-    kb.row(KeyboardButton(text=SEARCH_BTN), width=1)
-    kb.row(
-        KeyboardButton(text=ALERT_ON_SELECTED),
-        KeyboardButton(text=ALERT_OFF_SELECTED),
-        width=2,
-    )
-    kb.row(KeyboardButton(text=FAV_DELETE_SELECTED), width=1)
-    kb.row(KeyboardButton(text=BACK_BTN), width=1)
-    return kb.as_markup(resize_keyboard=True, is_persistent=True)

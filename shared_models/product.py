@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -9,8 +9,14 @@ class ProductData(BaseModel):
     title: str = Field(..., description="Название товара")
     url: str = Field(..., description="URL товара")
     price_rub: Optional[int] = Field(None, description="Цена в рублях")
-    manufacturer: Optional[str] = Field(None, description="Производитель/издатель")
-    year: Optional[int] = Field(None, description="Год выпуска")
+
+    # Множественные связи (убрать authors)
+    manufacturers: List[str] = Field(
+        default_factory=list, description="Список производителей/издателей"
+    )
+    categories: List[str] = Field(default_factory=list, description="Список категорий")
+
+    # Игровые характеристики
     players: Optional[str] = Field(
         None, description="Количество игроков (например: '1-4')"
     )
@@ -20,9 +26,6 @@ class ProductData(BaseModel):
     age: Optional[str] = Field(
         None, description="Возрастные ограничения (например: '14+')"
     )
-    description: Optional[str] = Field(None, description="Описание товара")
-    external_id: Optional[str] = Field(None, description="Внешний ID товара")
-    image_url: Optional[str] = Field(None, description="URL изображения")
 
     def to_django_format(self) -> dict:
         """Преобразование в формат для Django моделей"""
@@ -30,12 +33,11 @@ class ProductData(BaseModel):
             "title": self.title,
             "url": self.url,
             "price_rub": self.price_rub,
-            "manufacturer": self.manufacturer,
-            "year": self.year,
+            "manufacturer": ", ".join(self.manufacturers)
+            if self.manufacturers
+            else None,
+            "categories": ", ".join(self.categories) if self.categories else None,
             "players": self.players,
             "play_time": self.play_time,
             "age": self.age,
-            "description": self.description,
-            "external_id": self.external_id,
-            "image_url": self.image_url,
         }

@@ -2,7 +2,6 @@ from django.contrib import admin
 from import_export.admin import ImportExportModelAdmin
 
 from .models import (
-    Author,
     Category,
     Offer,
     PriceAlert,
@@ -33,12 +32,6 @@ class ProductCategoryInline(admin.TabularInline):
     autocomplete_fields = ("category",)
 
 
-class ProductAuthorInline(admin.TabularInline):
-    model = Product.authors.through
-    extra = 0
-    autocomplete_fields = ("author",)
-
-
 class ProductPublisherInline(admin.TabularInline):
     model = Product.publishers.through
     extra = 0
@@ -50,7 +43,6 @@ class ProductAdmin(ImportExportModelAdmin):
     list_display = (
         "id",
         "title",
-        "get_authors_display",
         "get_publishers_display",
         "get_categories_display",
         "min_players",
@@ -62,22 +54,15 @@ class ProductAdmin(ImportExportModelAdmin):
     list_filter = (
         "categories",
         "publishers",
-        "authors",
         "min_age",
         "created_at",
     )
-    search_fields = ("title", "authors__name", "publishers__name", "categories__name")
-    filter_horizontal = ("authors", "publishers", "categories")
+    search_fields = ("title", "publishers__name", "categories__name")
+    filter_horizontal = ("publishers", "categories")
     prepopulated_fields = {"slug": ("title",)}
     inlines = [OfferInline]
     ordering = ("-updated_at",)
     readonly_fields = ("created_at", "updated_at")
-
-    def get_authors_display(self, obj):
-        """Показывает всех авторов в списке"""
-        return ", ".join([author.name for author in obj.authors.all()[:3]])
-
-    get_authors_display.short_description = "Авторы"
 
     def get_publishers_display(self, obj):
         """Показывает всех издателей в списке"""
@@ -112,7 +97,7 @@ class OfferAdmin(ImportExportModelAdmin):
 
 
 @admin.register(PriceHistory)
-class PriceHistoryAdmin(admin.ModelAdmin):
+class PriceHistoryAdmin(ImportExportModelAdmin):
     list_display = ("id", "offer", "price", "currency", "timestamp")
     list_filter = ("currency", "timestamp")
     search_fields = ("offer__product__title", "offer__shop__name")
@@ -121,14 +106,14 @@ class PriceHistoryAdmin(admin.ModelAdmin):
 
 
 @admin.register(Shop)
-class ShopAdmin(admin.ModelAdmin):
+class ShopAdmin(ImportExportModelAdmin):
     list_display = ("id", "name", "domain", "parser_type", "is_active")
     list_filter = ("parser_type", "is_active")
     search_fields = ("name", "domain")
 
 
 @admin.register(Category)
-class CategoryAdmin(admin.ModelAdmin):
+class CategoryAdmin(ImportExportModelAdmin):
     list_display = ("id", "name", "slug", "products_count")
     prepopulated_fields = {"slug": ("name",)}
     search_fields = ("name",)
@@ -140,21 +125,8 @@ class CategoryAdmin(admin.ModelAdmin):
     products_count.short_description = "Количество продуктов"
 
 
-@admin.register(Author)
-class AuthorAdmin(admin.ModelAdmin):
-    list_display = ("id", "name", "slug", "products_count")
-    prepopulated_fields = {"slug": ("name",)}
-    search_fields = ("name",)
-
-    def products_count(self, obj):
-        """Показывает количество продуктов автора"""
-        return obj.products.count()
-
-    products_count.short_description = "Количество продуктов"
-
-
 @admin.register(Publisher)
-class PublisherAdmin(admin.ModelAdmin):
+class PublisherAdmin(ImportExportModelAdmin):
     list_display = ("id", "name", "slug", "products_count")
     prepopulated_fields = {"slug": ("name",)}
     search_fields = ("name",)
@@ -167,7 +139,7 @@ class PublisherAdmin(admin.ModelAdmin):
 
 
 @admin.register(PriceAlert)
-class PriceAlertAdmin(admin.ModelAdmin):
+class PriceAlertAdmin(ImportExportModelAdmin):
     list_display = (
         "id",
         "user",

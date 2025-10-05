@@ -18,8 +18,11 @@ class ParseRequest(BaseModel):
 
 class CatalogRequest(BaseModel):
     shop_url: str = Field(..., description="URL каталога магазина")
-    limit: int = Field(default=100, description="Максимальное количество товаров")
+    limit: int = Field(default=1000, description="Максимальное количество товаров")
     shop_name: str = Field(default="Unknown", description="Название магазина")
     parser_type: Optional[str] = Field(
         None, description="Тип парсера: beautifulsoup, playwright"
     )
+    page_start: int = 1
+    max_pages: Optional[int] = 12
+    detail: bool = True

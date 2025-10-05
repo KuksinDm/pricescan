@@ -1,0 +1,28 @@
+"""Константы для бота"""
+
+# API константы
+DEFAULT_TIMEOUT = 15
+DEFAULT_LIMIT = 10
+DEFAULT_OFFERS_LIMIT = 5
+
+# Пагинация
+DEFAULT_PAGE_LIMIT = 5
+MEDIUM_LIMIT = 20
+LARGE_LIMIT = 100
+OFFSET = 0
+
+# Поиск
+MAX_SEARCH_RESULTS = 5
+DEFAULT_CURRENCY = "RUB"
+
+# Telegram ограничения
+MAX_BUTTON_TEXT_LENGTH = 60
+TELEGRAM_MESSAGE_MAX_LENGTH = 4096
+
+# Retry настройки
+MAX_RETRIES = 3
+RETRY_DELAY = 60
+
+# Cache настройки
+JWT_CACHE_TTL = 3600  # 1 час
+JWT_CACHE_MAXSIZE = 10000

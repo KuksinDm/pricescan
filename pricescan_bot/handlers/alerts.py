@@ -3,54 +3,69 @@ import logging
 from aiogram import F, Router
 from aiogram.types import CallbackQuery, Message
 
-from ..api import ApiClient
+from ..constants import DEFAULT_PAGE_LIMIT, LARGE_LIMIT, OFFSET
 from ..keyboards.alerts import alerts_kb
+from ..services.alert_handlers import handle_alert_edit, handle_alert_new
+from ..services.page_refresh import refresh_alerts_page
 from ..services.state import (
     clear_multi,
-    clear_wait_mode,
     get_selected_ids,
     get_wait_mode,
     set_wait_mode,
     toggle_multi_selected,
 )
 from ..utils.auth import ensure_jwt
+from ..utils.parsers import (
+    parse_callback_alert_id,
+    parse_callback_offset,
+)
 from ..utils.texts import ALERTS_BTN
 
 router = Router()
 logger = logging.getLogger(__name__)
 
 
-@router.message(F.text.startswith(ALERTS_BTN))
-async def btn_alerts(message: Message, api: ApiClient):
-    u = message.from_user
-    await ensure_jwt(message, api)
+@router.message(F.text == ALERTS_BTN)
+async def btn_alerts(message: Message, container):
+    """Обработчик кнопки 'Подписки' - показывает первую страницу алертов"""
     try:
-        items, prev_off, next_off = await api.list_alerts_page(
-            telegram_id=u.id, limit=5, offset=0
+        await ensure_jwt(message, container.api_client)
+    except Exception:
+        logger.exception("Failed to ensure JWT for alerts")
+        return await message.answer("Ошибка авторизации. Попробуйте позже.")
+
+    try:
+        items, prev_off, next_off = await container.api_client.list_alerts_page(
+            telegram_id=message.from_user.id, limit=DEFAULT_PAGE_LIMIT, offset=OFFSET
         )
     except Exception:
-        logger.exception("list_alerts_page failed")
+        logger.exception("Failed to get alerts page")
         return await message.answer("Не удалось получить подписки.")
+
     if not items:
         return await message.answer("Подписок нет.")
+
     await message.answer(
-        "Ваши подписки:", reply_markup=alerts_kb(items, set(), prev_off, next_off)
+        "Подписки:", reply_markup=alerts_kb(items, set(), prev_off, next_off)
     )
 
 
 @router.callback_query(F.data.startswith("alert-page:"))
-async def cb_alert_page(cb: CallbackQuery, api: ApiClient):
-    off = int(cb.data.split(":")[1])
-    u = cb.from_user
+async def cb_alerts_page(cb: CallbackQuery, container):
+    """Обработчик пагинации алертов - переключает страницы"""
+    offset = parse_callback_offset(cb.data)
+
     try:
-        items, prev_off, next_off = await api.list_alerts_page(
-            telegram_id=u.id, limit=5, offset=off
+        items, prev_off, next_off = await container.api_client.list_alerts_page(
+            telegram_id=cb.from_user.id, limit=DEFAULT_PAGE_LIMIT, offset=offset
         )
     except Exception:
-        logger.exception("list_alerts_page failed: offset=%s", off)
+        logger.exception("Failed to get alerts page: offset=%s", offset)
         return await cb.answer("Не удалось загрузить страницу", show_alert=True)
+
     if not items:
         return await cb.answer("Больше нет", show_alert=True)
+
     if cb.message:
         await cb.message.edit_reply_markup(
             reply_markup=alerts_kb(items, set(), prev_off, next_off)
@@ -59,15 +74,21 @@ async def cb_alert_page(cb: CallbackQuery, api: ApiClient):
 
 
 @router.callback_query(F.data.startswith("alert-sel:"))
-async def cb_alert_sel(cb: CallbackQuery, api: ApiClient):
-    aid = int(cb.data.split(":")[1])
-    u = cb.from_user
+async def cb_alert_select(cb: CallbackQuery, container):
+    """Обработчик выбора алерта - добавляет/убирает из множественного выбора"""
     try:
-        items = await api.list_alerts(telegram_id=u.id, limit=20)
+        alert_id = parse_callback_alert_id(cb.data)
+    except ValueError:
+        return await cb.answer("Ошибка в данных", show_alert=True)
+
+    try:
+        items = await container.api_client.list_alerts(telegram_id=cb.from_user.id, limit=LARGE_LIMIT)
     except Exception:
-        logger.exception("list_alerts failed")
+        logger.exception("Failed to get alerts list for selection")
         return await cb.answer("Не удалось загрузить список", show_alert=True)
-    selected = toggle_multi_selected(u.id, aid)
+
+    selected = toggle_multi_selected(cb.from_user.id, alert_id)
+
     if cb.message:
         await cb.message.edit_reply_markup(
             reply_markup=alerts_kb(items, selected, None, None)
@@ -76,150 +97,109 @@ async def cb_alert_sel(cb: CallbackQuery, api: ApiClient):
 
 
 @router.callback_query(F.data == "alert-on-selected")
-async def cb_alert_on_selected(cb: CallbackQuery, api: ApiClient):
-    u = cb.from_user
-    ids = get_selected_ids(u.id)
-    if not ids:
-        return await cb.answer("Ничего не выбрано", show_alert=True)
-    changed = 0
-    items = await api.list_alerts(telegram_id=u.id, limit=100)
-    is_active = {it["id"]: it["is_active"] for it in items}
-    for aid in ids:
-        if not is_active.get(aid, True):
-            if await api.toggle_alert(aid, telegram_id=u.id):
-                changed += 1
-    clear_multi(u.id)
-    page, prev_off, next_off = await api.list_alerts_page(
-        telegram_id=u.id, limit=5, offset=0
-    )
-    if cb.message:
-        await cb.message.edit_reply_markup(
-            reply_markup=alerts_kb(page, set(), prev_off, next_off)
-        )
-    await cb.answer(f"Включено: {changed}")
+async def cb_alerts_activate_selected(cb: CallbackQuery, container):
+    """Включает все выбранные алерты"""
+    user_id = cb.from_user.id
+    selected_ids = get_selected_ids(user_id)
 
-
-@router.callback_query(F.data == "alert-edit-selected")
-async def cb_alert_edit_selected(cb: CallbackQuery):
-    u = cb.from_user
-    ids = get_selected_ids(u.id)
-    if not ids:
+    if not selected_ids:
         return await cb.answer("Ничего не выбрано", show_alert=True)
-    set_wait_mode(u.id, "alertEdit:" + ",".join(map(str, ids)))
-    if cb.message:
-        await cb.message.answer("Введите новую цену (например 1990.00)")
-    await cb.answer()
+
+    activated_count = 0
+    for alert_id in selected_ids:
+        try:
+            if await container.api_client.toggle_alert(alert_id, telegram_id=user_id):
+                activated_count += 1
+        except Exception:
+            logger.exception("Failed to activate alert: id=%s", alert_id)
+
+    clear_multi(user_id)
+    await refresh_alerts_page(cb.message, user_id, container.api_client, f"Включено: {activated_count}")
 
 
 @router.callback_query(F.data == "alert-off-selected")
-async def cb_alert_off_selected(cb: CallbackQuery, api: ApiClient):
-    u = cb.from_user
-    ids = get_selected_ids(u.id)
-    if not ids:
+async def cb_alerts_deactivate_selected(cb: CallbackQuery, container):
+    """Выключает все выбранные алерты"""
+    user_id = cb.from_user.id
+    selected_ids = get_selected_ids(user_id)
+
+    if not selected_ids:
         return await cb.answer("Ничего не выбрано", show_alert=True)
-    changed = 0
-    try:
-        items = await api.list_alerts(telegram_id=u.id, limit=100)
-    except Exception:
-        logger.exception("list_alerts failed")
-        return await cb.answer("Не удалось", show_alert=True)
-    is_active = {it["id"]: it["is_active"] for it in items}
-    for aid in ids:
-        if is_active.get(aid, False):
-            try:
-                if await api.toggle_alert(aid, telegram_id=u.id):
-                    changed += 1
-            except Exception:
-                logger.exception("toggle_alert failed: id=%s", aid)
-    clear_multi(u.id)
-    page, prev_off, next_off = await api.list_alerts_page(
-        telegram_id=u.id, limit=5, offset=0
+
+    deactivated_count = 0
+    for alert_id in selected_ids:
+        try:
+            if await container.api_client.toggle_alert(alert_id, telegram_id=user_id):
+                deactivated_count += 1
+        except Exception:
+            logger.exception("Failed to deactivate alert: id=%s", alert_id)
+
+    clear_multi(user_id)
+    await refresh_alerts_page(
+        cb.message, user_id, container.api_client, f"Выключено: {deactivated_count}"
     )
-    if cb.message:
-        if not page:
-            await cb.message.edit_reply_markup(reply_markup=None)
-            await cb.message.answer("Подписок нет.")
-        else:
-            await cb.message.edit_reply_markup(
-                reply_markup=alerts_kb(page, set(), prev_off, next_off)
-            )
-    await cb.answer(f"Выключено: {changed}")
 
 
 @router.callback_query(F.data == "alert-del-selected")
-async def cb_alert_del_selected(cb: CallbackQuery, api: ApiClient):
-    u = cb.from_user
-    ids = get_selected_ids(u.id)
-    if not ids:
+async def cb_alerts_delete_selected(cb: CallbackQuery, container):
+    """Удаляет все выбранные алерты"""
+    user_id = cb.from_user.id
+    selected_ids = get_selected_ids(user_id)
+
+    if not selected_ids:
         return await cb.answer("Ничего не выбрано", show_alert=True)
-    deleted = 0
-    for aid in ids:
+
+    deleted_count = 0
+    for alert_id in selected_ids:
         try:
-            if await api.delete_alert(aid, telegram_id=u.id):
-                deleted += 1
+            if await container.api_client.delete_alert(alert_id, telegram_id=user_id):
+                deleted_count += 1
         except Exception:
-            logger.exception("delete_alert failed: id=%s", aid)
-    clear_multi(u.id)
-    page, prev_off, next_off = await api.list_alerts_page(
-        telegram_id=u.id, limit=5, offset=0
-    )
+            logger.exception("Failed to delete alert: id=%s", alert_id)
+
+    clear_multi(user_id)
+    await refresh_alerts_page(cb.message, user_id, container.api_client, f"Удалено: {deleted_count}")
+
+
+@router.callback_query(F.data == "alert-edit-selected")
+async def cb_alerts_edit_selected(cb: CallbackQuery):
+    """Переводит в режим редактирования цены выбранных алертов"""
+    user_id = cb.from_user.id
+    selected_ids = get_selected_ids(user_id)
+
+    if not selected_ids:
+        return await cb.answer("Ничего не выбрано", show_alert=True)
+
     if cb.message:
-        if not page:
-            await cb.message.edit_reply_markup(reply_markup=None)
-            await cb.message.answer("Подписок нет.")
-        else:
-            await cb.message.edit_reply_markup(
-                reply_markup=alerts_kb(page, set(), prev_off, next_off)
-            )
-    await cb.answer(f"Удалено: {deleted}")
+        await cb.message.answer("Введите новую пороговую цену (например 1990.00)")
+
+    # Устанавливаем режим ожидания
+    alert_ids_str = ",".join(map(str, selected_ids))
+    set_wait_mode(user_id, f"alertEdit:{alert_ids_str}")
+
+    clear_multi(user_id)
+    await cb.answer()
 
 
 @router.message(F.text.regexp(r"^\d+[\.,]?\d*$"))
-async def on_price_input(message: Message, api: ApiClient):
-    u = message.from_user
-    mode = get_wait_mode(u.id)
-    if not mode:
+async def on_price_input(message: Message, container):
+    """Обрабатывает ввод цены для создания/редактирования алертов"""
+    user_id = message.from_user.id
+    wait_mode = get_wait_mode(user_id)
+
+    if not wait_mode:
         return
-    text = (message.text or "").replace(",", ".")
+
     try:
-        price = float(text)
+        price = float(message.text.replace(",", "."))
     except ValueError:
         return await message.answer("Некорректная цена. Пример: 1990.00")
-    if mode.startswith("alertEdit:"):
-        ids = [int(x) for x in mode.split(":", 1)[1].split(",") if x]
-        ok = 0
-        for aid in ids:
-            try:
-                if await api.update_alert_price(
-                    aid, telegram_id=u.id, threshold_price=price
-                ):
-                    ok += 1
-            except Exception:
-                logger.exception("update_alert_price failed: id=%s", aid)
-        clear_wait_mode(u.id)
-        # обновим список
-        items, prev_off, next_off = await api.list_alerts_page(
-            telegram_id=u.id, limit=5, offset=0
+
+    if wait_mode.startswith("alertEdit:"):
+        await handle_alert_edit(
+            message, container.api_client, user_id, price, wait_mode
         )
-        await message.answer(
-            f"Обновлено цен: {ok}",
-            reply_markup=alerts_kb(items, set(), prev_off, next_off) if items else None,
-        )
-        return
-    if mode.startswith("alertNew:"):
-        # alertNew:{pid}:{currency}
-        _, pid, currency = mode.split(":", 2)
-        try:
-            ok = await api.create_alert(
-                telegram_id=u.id,
-                product_id=int(pid),
-                threshold_price=price,
-                currency=currency,
-            )
-        except Exception:
-            logger.exception("create_alert failed: pid=%s", pid)
-            return await message.answer("Не удалось создать подписку")
-        clear_wait_mode(u.id)
-        await message.answer(
-            "Подписка создана" if ok else "Не удалось создать подписку"
+    elif wait_mode.startswith("alertNew:"):
+        await handle_alert_new(
+            message, container.api_client, user_id, price, wait_mode
         )

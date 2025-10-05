@@ -8,7 +8,6 @@ from .models import Offer, PriceAlert, PriceHistory, Product, Shop
 from .serializers import (
     OfferSerializer,
     PriceAlertSerializer,
-    PriceHistorySerializer,
     ProductSerializer,
     ShopSerializer,
 )
@@ -27,25 +26,31 @@ class ProductViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Product.objects.all()
 
     def get_queryset(self):
-        queryset = Product.objects.select_related(
-            "author", "publisher", "category"
-        ).annotate(
-            min_price=Min("offers__price", filter=Q(offers__is_available=True)),
-            offers_count=Count("offers", distinct=True),
+        queryset = (
+            Product.objects.prefetch_related("offers", "offers__shop")
+            .select_related()
+            .annotate(
+                min_price=Min("offers__price"),
+                offers_count=Count("offers", distinct=True),
+            )
         )
         query = self.request.query_params.get("q")
         if query:
             queryset = queryset.filter(
                 Q(title__icontains=query)
-                | Q(author__name__icontains=query)
-                | Q(brand__icontains=query)
-                | Q(ean__icontains=query)
+                | Q(publishers__name__icontains=query)  # Заменить author на publishers
+                | Q(categories__name__icontains=query)  # Добавить поиск по категориям
             )
-        # простые фильтры по id
-        for field in ("author", "publisher", "category", "min_age"):
+        # простые фильтры по id (убрать author)
+        for field in ("publisher", "category", "min_age"):
             value = self.request.query_params.get(field)
             if value and value.isdigit():
-                queryset = queryset.filter(**{field: int(value)})
+                if field == "publisher":
+                    queryset = queryset.filter(publishers=int(value))
+                elif field == "category":
+                    queryset = queryset.filter(categories=int(value))
+                else:
+                    queryset = queryset.filter(**{field: int(value)})
         return queryset.order_by("title")
 
     @extend_schema(summary="Все предложения по запросу (группировка по продуктам)")
@@ -109,7 +114,9 @@ class ProductViewSet(viewsets.ReadOnlyModelViewSet):
         permission_classes=[permissions.IsAuthenticated],
     )
     def refresh(self, request, pk=None):
-        refresh_product.delay(int(pk))
+        # ✅ Передаем telegram_id пользователя для уведомления
+        user_telegram_id = getattr(request.user, "telegram_id", None)
+        refresh_product.delay(int(pk), user_telegram_id=user_telegram_id)
         return Response({"queued": True}, status=202)
 
 
@@ -165,18 +172,45 @@ class PriceAlertViewSet(
         alert.save(update_fields=["is_active"])
         return Response({"is_active": alert.is_active}, status=200)
 
+    @extend_schema(summary="Получить товары со скидками")
+    @action(detail=False, methods=["get"], url_path="discounts")
+    def discounts(self, request):
+        """Получает товары со скидками за последнюю неделю"""
+        from datetime import datetime, timedelta
 
-class PriceHistoryViewSet(viewsets.ReadOnlyModelViewSet):
-    permission_classes = [permissions.AllowAny]
-    serializer_class = PriceHistorySerializer
-    queryset = PriceHistory.objects.all()
+        week_ago = datetime.now() - timedelta(days=7)
 
-    def get_queryset(self):
-        queryset = PriceHistory.objects.select_related("offer__product", "offer__shop")
-        offer_id = self.request.query_params.get("offer")
-        if offer_id and offer_id.isdigit():
-            queryset = queryset.filter(offer_id=int(offer_id))
-        return queryset.order_by("-timestamp")
+        # Получаем офферы с историей цен за последнюю неделю
+        offers_with_history = Offer.objects.filter(
+            price_history__timestamp__gte=week_ago
+        ).distinct()
+
+        # Рассчитываем скидки
+        discounted_offers = []
+        for offer in offers_with_history:
+            # Получаем предыдущую цену
+            previous_price = (
+                PriceHistory.objects.filter(offer=offer).order_by("-timestamp").first()
+            )
+
+            if previous_price and offer.price < previous_price.price:
+                discount_percentage = (
+                    (previous_price.price - offer.price) / previous_price.price
+                ) * 100
+
+                # Добавляем информацию о скидке
+                offer_data = OfferSerializer(offer).data
+                offer_data["discount_percentage"] = discount_percentage
+                discounted_offers.append(offer_data)
+
+        # Сортируем по проценту скидки
+        discounted_offers.sort(key=lambda x: x["discount_percentage"], reverse=True)
+
+        # Ограничиваем количество
+        limit = int(request.query_params.get("limit", 10))
+        discounted_offers = discounted_offers[:limit]
+
+        return Response(discounted_offers)
 
 
 class ShopViewSet(viewsets.ReadOnlyModelViewSet):
