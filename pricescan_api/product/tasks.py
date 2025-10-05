@@ -351,41 +351,81 @@ from .models import Category, Product, Publisher
 
 
 @shared_task(queue="heavy")
-def purge_products_not_in_both_shops(dry_run: bool = False) -> dict:
+def purge_products_not_in_both_shops(
+    dry_run: bool = False, max_keep: int = 100
+) -> dict:
     """
     Временная чистка:
       - удаляет товары, у которых офферы есть менее чем в 2 магазинах
+      - оставляет только max_keep товаров (по умолчанию 100)
       - после этого удаляет пустые издательства и категории
     """
+    logger.info(f"=== STARTING PURGE TASK: dry_run={dry_run}, max_keep={max_keep} ===")
+
     stats = {
         "products_checked": 0,
         "products_to_delete": 0,
         "products_deleted": 0,
         "publishers_deleted": 0,
         "categories_deleted": 0,
+        "max_keep": max_keep,
     }
 
-    # по офферам считаем количество уникальных магазинов на продукт
-    by_product = Offer.objects.values("product_id").annotate(
-        shop_cnt=Count("shop", distinct=True)
-    )
-    keep_ids = {row["product_id"] for row in by_product if row["shop_cnt"] >= 2}
-    all_ids = set(Product.objects.values_list("id", flat=True))
-    to_delete_ids = list(all_ids - keep_ids)
-
-    stats["products_checked"] = len(all_ids)
-    stats["products_to_delete"] = len(to_delete_ids)
-
-    if not dry_run and to_delete_ids:
-        stats["products_deleted"] = Product.objects.filter(id__in=to_delete_ids).count()
-        Product.objects.filter(id__in=to_delete_ids).delete()
-
-        # после удаления товаров — подчистить пустые связи
-        stats["publishers_deleted"] = (
-            Publisher.objects.annotate(n=Count("products")).filter(n=0).delete()[0]
-        )
-        stats["categories_deleted"] = (
-            Category.objects.annotate(n=Count("products")).filter(n=0).delete()[0]
+    try:
+        logger.info("Step 1: Getting products with offers...")
+        # по офферам считаем количество уникальных магазинов на продукт
+        by_product = Offer.objects.values("product_id").annotate(
+            shop_cnt=Count("shop", distinct=True)
         )
 
-    return stats
+        logger.info(f"Found {len(by_product)} products with offers")
+
+        # Сначала фильтруем по количеству магазинов (>= 2)
+        keep_ids = {row["product_id"] for row in by_product if row["shop_cnt"] >= 2}
+
+        logger.info(f"Products with 2+ shops: {len(keep_ids)}")
+
+        # Если товаров больше max_keep, берем только первые max_keep
+        if len(keep_ids) > max_keep:
+            # Сортируем по ID для стабильности (можно изменить на другой критерий)
+            keep_ids = sorted(keep_ids)[:max_keep]
+            logger.info(
+                f"Limited to {max_keep} products from {len(keep_ids)} eligible products"
+            )
+
+        logger.info("Step 2: Getting all product IDs...")
+        all_ids = set(Product.objects.values_list("id", flat=True))
+        to_delete_ids = list(all_ids - set(keep_ids))
+
+        stats["products_checked"] = len(all_ids)
+        stats["products_to_delete"] = len(to_delete_ids)
+        stats["products_kept"] = len(keep_ids)
+
+        logger.info(f"Stats: {stats}")
+
+        if not dry_run and to_delete_ids:
+            logger.info(f"Step 3: Deleting {len(to_delete_ids)} products...")
+            stats["products_deleted"] = Product.objects.filter(
+                id__in=to_delete_ids
+            ).count()
+            Product.objects.filter(id__in=to_delete_ids).delete()
+            logger.info("Products deleted successfully")
+
+            logger.info("Step 4: Cleaning up empty publishers and categories...")
+            # после удаления товаров — подчистить пустые связи
+            stats["publishers_deleted"] = (
+                Publisher.objects.annotate(n=Count("products")).filter(n=0).delete()[0]
+            )
+            stats["categories_deleted"] = (
+                Category.objects.annotate(n=Count("products")).filter(n=0).delete()[0]
+            )
+            logger.info("Cleanup completed")
+        else:
+            logger.info("Dry run mode - no products deleted")
+
+        logger.info(f"=== PURGE TASK COMPLETED: {stats} ===")
+        return stats
+
+    except Exception as e:
+        logger.error(f"=== PURGE TASK ERROR: {e} ===")
+        return {"ok": False, "error": str(e)}

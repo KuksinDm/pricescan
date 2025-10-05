@@ -6,7 +6,7 @@ from django.db import transaction
 from django.utils.text import slugify
 from unidecode import unidecode
 
-from product.models import Author, Category, Product, Publisher
+from product.models import Category, Product, Publisher
 
 
 def to_int(v):
@@ -24,12 +24,12 @@ def ensure_unique_slug(base: str) -> str:
 
 
 class Command(BaseCommand):
-    help = "Импорт продуктов из CSV (id,title,author,publisher,category,ean,brand,slug,description,image_url,min_players,max_players,playtime_min,min_age,external_id). Слаг игнорируется и генерируется заново."
+    help = "Импорт продуктов из CSV (id,title,publisher,category,slug,min_players,max_players,playtime_min,min_age,external_id). Слаг игнорируется и генерируется заново."
 
     def add_arguments(self, parser):
         parser.add_argument(
             "--file",
-            default="product/data/products.csv",
+            default="product/data/product.csv",
             help="Путь к CSV файлу с продуктами",
         )
         parser.add_argument(
@@ -50,18 +50,12 @@ class Command(BaseCommand):
             required = {
                 "id",
                 "title",
-                "author",
-                "publisher",
-                "category",
-                "ean",
-                "brand",
-                "description",
-                "image_url",
+                "publishers",
+                "categories", 
                 "min_players",
                 "max_players",
                 "playtime_min",
                 "min_age",
-                "external_id",
             }
             missing = required - set(reader.fieldnames or [])
             if missing:
@@ -75,60 +69,54 @@ class Command(BaseCommand):
                     skipped += 1
                     continue
 
-                # FK
-                author_id = to_int(row.get("author"))
-                publisher_id = to_int(row.get("publisher"))
-                category_id = to_int(row.get("category"))
+                # Обрабатываем publishers (список ID через запятую)
+                publishers = []
+                publishers_str = row.get("publishers", "").strip()
+                if publishers_str:
+                    for pub_id in publishers_str.split(","):
+                        pub_id = pub_id.strip()
+                        if pub_id.isdigit():
+                            try:
+                                pub = Publisher.objects.get(pk=int(pub_id))
+                                publishers.append(pub)
+                            except Publisher.DoesNotExist:
+                                if opts["strict-fk"]:
+                                    raise
+                                continue
 
-                try:
-                    author = Author.objects.get(pk=author_id) if author_id else None
-                    publisher = (
-                        Publisher.objects.get(pk=publisher_id) if publisher_id else None
-                    )
-                    category = (
-                        Category.objects.get(pk=category_id) if category_id else None
-                    )
-                except (
-                    Author.DoesNotExist,
-                    Publisher.DoesNotExist,
-                    Category.DoesNotExist,
-                ):
-                    if opts["strict-fk"]:
-                        raise
-                    skipped += 1
-                    continue
+                # Обрабатываем categories (список ID через запятую)
+                categories = []
+                categories_str = row.get("categories", "").strip()
+                if categories_str:
+                    for cat_id in categories_str.split(","):
+                        cat_id = cat_id.strip()
+                        if cat_id.isdigit():
+                            try:
+                                cat = Category.objects.get(pk=int(cat_id))
+                                categories.append(cat)
+                            except Category.DoesNotExist:
+                                if opts["strict-fk"]:
+                                    raise
+                                continue
 
                 # Поля
-                ean = (row.get("ean") or "").strip() or None
-                brand = (row.get("brand") or "").strip() or None
-                description = (row.get("description") or "").strip()
-                image_url = (row.get("image_url") or "").strip() or None
                 min_players = to_int(row.get("min_players"))
                 max_players = to_int(row.get("max_players"))
                 playtime_min = to_int(row.get("playtime_min"))
                 min_age = to_int(row.get("min_age"))
-                external_id = (row.get("external_id") or "").strip() or None
 
-                # Слаг — генерируем заново (игнорируем CSV slug)
+                # Слаг — генерируем заново
                 base_slug = slugify(unidecode(title))
                 slug = ensure_unique_slug(base_slug)
 
                 pk = to_int(row.get("id"))
                 defaults = {
                     "title": title,
-                    "author": author,
-                    "publisher": publisher,
-                    "category": category,
-                    "ean": ean,
-                    "brand": brand,
                     "slug": slug,
-                    "description": description,
-                    "image_url": image_url,
                     "min_players": min_players,
                     "max_players": max_players,
                     "playtime_min": playtime_min,
                     "min_age": min_age,
-                    "external_id": external_id,
                 }
 
                 if pk:
@@ -136,19 +124,15 @@ class Command(BaseCommand):
                         pk=pk, defaults=defaults
                     )
                 else:
-                    # если id не задан — пробуем по ean или external_id
-                    lookup = {}
-                    if ean:
-                        lookup["ean"] = ean
-                    elif external_id:
-                        lookup["external_id"] = external_id
-                    obj, is_created = (
-                        Product.objects.update_or_create(defaults=defaults, **lookup)
-                        if lookup
-                        else Product.objects.get_or_create(
-                            title=title, defaults=defaults
-                        )
+                    obj, is_created = Product.objects.get_or_create(
+                        title=title, defaults=defaults
                     )
+
+                # Устанавливаем ManyToMany связи ПОСЛЕ создания объекта
+                if publishers:
+                    obj.publishers.set(publishers)
+                if categories:
+                    obj.categories.set(categories)
 
                 # гарантируем уникальный slug для уже существующих
                 if Product.objects.exclude(pk=obj.pk).filter(slug=obj.slug).exists():

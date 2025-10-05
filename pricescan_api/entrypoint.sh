@@ -25,12 +25,11 @@ python manage.py createsuperuser --noinput \
     }
 
 # Импортируем данные
-# python manage.py load_autors         || true
-# python manage.py load_categories     || true
-# python manage.py load_publishers     || true
-# python manage.py load_products       || true
-python manage.py load_shops          || true
-# python manage.py load_offers         || true
-# python manage.py load_price_history  || true
+python manage.py load_shops
+python manage.py load_categories
+python manage.py load_publishers
+python manage.py load_products
+python manage.py load_offers
+
 
 exec gunicorn --bind 0.0.0.0:9040 config.wsgi:application

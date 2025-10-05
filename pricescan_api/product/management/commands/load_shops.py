@@ -23,7 +23,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
-            "--file", default="product/data/shops.csv", help="Путь к CSV файлу"
+            "--file", default="product/data/shop.csv", help="Путь к CSV файлу"
         )
 
     def handle(self, *args, **opts):
