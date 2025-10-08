@@ -4,7 +4,6 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 def alerts_kb(
     items: list[dict], selected: set[int], prev_off: int | None, next_off: int | None
 ) -> InlineKeyboardMarkup:
-    """Создает клавиатуру для списка алертов с пагинацией и множественным выбором"""
     rows: list[list[InlineKeyboardButton]] = []
 
     for alert_item in items:

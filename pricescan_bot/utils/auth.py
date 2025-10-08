@@ -8,7 +8,6 @@ logger = logging.getLogger(__name__)
 
 
 async def ensure_jwt(message: Message, api: ApiClient) -> None:
-    """Обеспечивает наличие JWT токена для пользователя"""
     user = message.from_user
     if not user:
         logger.warning("Message without user in ensure_jwt")

@@ -1,5 +1,3 @@
-"""Текстовые константы и утилиты для бота"""
-
 # Основные тексты
 WELCOME_TEXT = "Привет! Я помогу найти лучшие цены на настольные игры."
 
@@ -19,17 +17,15 @@ HELP_TEXT = (
     "• Открыть в магазине — перейти на сайт магазина.\n"
 )
 
-# Кнопки Reply-клавиатуры
+# Кнопки
 SEARCH_BTN = "🔎 Найти"
 FAV_BTN = "⭐ Избранное"
 ALERTS_BTN = "🔔 Подписки"
 DISCOUNTS_BTN = "🔥 Акции"
 HELP_BTN = "ℹ️ Помощь"
 
-# Множество текстов кнопок для проверки
 BUTTON_TEXTS = {SEARCH_BTN, FAV_BTN, ALERTS_BTN, HELP_BTN, DISCOUNTS_BTN}
 
 
 def is_button_text(text: str) -> bool:
-    """Проверяет, является ли текст одной из кнопок главного меню"""
     return (text or "").strip() in BUTTON_TEXTS

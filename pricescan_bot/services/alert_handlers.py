@@ -18,7 +18,6 @@ logger = logging.getLogger(__name__)
 async def handle_alert_edit(
     message: "Message", api: "ApiClient", user_id: int, price: float, wait_mode: str
 ):
-    """Обрабатывает редактирование цены алерта"""
     try:
         alert_ids = [int(x) for x in wait_mode.split(":", 1)[1].split(",") if x]
     except ValueError:
@@ -42,7 +41,6 @@ async def handle_alert_edit(
 async def handle_alert_new(
     message: "Message", api: "ApiClient", user_id: int, price: float, wait_mode: str
 ):
-    """Обрабатывает создание нового алерта"""
     try:
         product_id, currency = parse_alert_new_data(wait_mode)
     except ValueError:

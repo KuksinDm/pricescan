@@ -1,5 +1,3 @@
-"""Сервис для обновления страниц после изменений"""
-
 import logging
 from typing import TYPE_CHECKING
 
@@ -18,7 +16,6 @@ logger = logging.getLogger(__name__)
 async def refresh_alerts_page(
     message: "Message", user_id: int, api: "ApiClient", success_msg: str
 ):
-    """Обновляет страницу алертов после изменений"""
     try:
         items, prev_off, next_off = await api.list_alerts_page(
             telegram_id=user_id, limit=DEFAULT_PAGE_LIMIT, offset=OFFSET
@@ -35,7 +32,6 @@ async def refresh_alerts_page(
 async def refresh_favorites_page(
     cb: "CallbackQuery", user_id: int, api: "ApiClient", success_msg: str
 ):
-    """Обновляет страницу избранного после изменений"""
     try:
         items, prev_off, next_off = await api.list_favorites_page(
             telegram_id=user_id, limit=DEFAULT_PAGE_LIMIT, offset=OFFSET

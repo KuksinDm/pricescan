@@ -1,5 +1,3 @@
-"""Утилиты для парсинга callback данных"""
-
 import logging
 
 from ..constants import DEFAULT_CURRENCY
@@ -8,7 +6,6 @@ logger = logging.getLogger(__name__)
 
 
 def parse_callback_offset(data: str) -> int:
-    """Безопасно извлечь offset из callback data"""
     try:
         return int(data.split(":")[1])
     except (IndexError, ValueError) as e:
@@ -17,7 +14,6 @@ def parse_callback_offset(data: str) -> int:
 
 
 def parse_callback_product_id(data: str) -> int:
-    """Безопасно извлечь product_id из callback data"""
     try:
         return int(data.split(":")[1])
     except (IndexError, ValueError) as e:
@@ -26,7 +22,6 @@ def parse_callback_product_id(data: str) -> int:
 
 
 def parse_callback_alert_id(data: str) -> int:
-    """Безопасно извлечь alert_id из callback data"""
     try:
         return int(data.split(":")[1])
     except (IndexError, ValueError) as e:
@@ -35,7 +30,6 @@ def parse_callback_alert_id(data: str) -> int:
 
 
 def parse_callback_favorite_id(data: str) -> int:
-    """Безопасно извлечь favorite_id из callback data"""
     try:
         return int(data.split(":")[1])
     except (IndexError, ValueError) as e:
@@ -44,8 +38,6 @@ def parse_callback_favorite_id(data: str) -> int:
 
 
 def parse_alert_new_data(data: str) -> tuple[int, str]:
-    """Безопасно извлечь данные для создания алерта"""
-
     try:
         parts = data.split(":")
         if len(parts) < 3:

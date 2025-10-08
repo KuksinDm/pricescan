@@ -4,15 +4,10 @@ import os
 
 
 def setup_logging(log_dir: str | None = None, level: str | int = "INFO") -> None:
-    """Настройка логирования для бота с отдельными файлами для разных типов логов.
-
-    Идемпотентная функция: можно вызывать многократно без проблем.
-    """
     if getattr(setup_logging, "_configured", False):
         return
 
     if isinstance(level, str):
-        # В 3.12 использование getLevelName(str) не рекомендуется
         mapping = getattr(logging, "getLevelNamesMapping", None)
         if mapping:
             log_level = logging.getLevelNamesMapping().get(level.upper(), logging.INFO)
@@ -29,18 +24,15 @@ def setup_logging(log_dir: str | None = None, level: str | int = "INFO") -> None
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    # Консольный вывод
     console = logging.StreamHandler()
     console.setLevel(log_level)
     console.setFormatter(formatter)
     logger.addHandler(console)
 
-    # Настройка файлового логирования
     if not log_dir:
         log_dir = os.path.join(os.getcwd(), "logs", "bot")  # Отдельная папка для бота
     os.makedirs(log_dir, exist_ok=True)
 
-    # Основной лог файл для всех сообщений
     main_handler = logging.handlers.RotatingFileHandler(
         filename=os.path.join(log_dir, "bot.log"),
         maxBytes=10 * 1024 * 1024,  # 10MB
@@ -51,7 +43,6 @@ def setup_logging(log_dir: str | None = None, level: str | int = "INFO") -> None
     main_handler.setFormatter(formatter)
     logger.addHandler(main_handler)
 
-    # Отдельный файл только для ошибок и критических сообщений
     error_handler = logging.handlers.RotatingFileHandler(
         filename=os.path.join(log_dir, "bot_errors.log"),
         maxBytes=5 * 1024 * 1024,  # 5MB
@@ -62,7 +53,6 @@ def setup_logging(log_dir: str | None = None, level: str | int = "INFO") -> None
     error_handler.setFormatter(formatter)
     logger.addHandler(error_handler)
 
-    # Отдельный файл для пользовательских действий (поиск, алерты, избранное)
     user_actions_handler = logging.handlers.RotatingFileHandler(
         filename=os.path.join(log_dir, "bot_user_actions.log"),
         maxBytes=5 * 1024 * 1024,  # 5MB
@@ -72,20 +62,17 @@ def setup_logging(log_dir: str | None = None, level: str | int = "INFO") -> None
     user_actions_handler.setLevel(logging.INFO)
     user_actions_handler.setFormatter(formatter)
 
-    # Настраиваем отдельный логгер для пользовательских действий
     user_logger = logging.getLogger("user_actions")
     user_logger.addHandler(user_actions_handler)
     user_logger.setLevel(logging.INFO)
-    user_logger.propagate = False  # Не дублировать в основной лог
+    user_logger.propagate = False
 
-    # Уменьшаем шум от библиотек
     logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
     logging.getLogger("aiogram").setLevel(logging.INFO)
-    logging.getLogger("httpx").setLevel(logging.WARNING)  # Для API запросов
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
-    setup_logging._configured = True  # type: ignore[attr-defined]
+    setup_logging._configured = True
 
 
 def get_user_actions_logger() -> logging.Logger:
-    """Получить логгер для пользовательских действий"""
     return logging.getLogger("user_actions")

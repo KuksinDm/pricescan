@@ -2,7 +2,6 @@ from typing import Any, Dict
 
 
 def fmt_dt_iso(ts: str | None) -> str:
-    """Форматирует ISO дату/время, возвращая только дату"""
     if not ts:
         return "-"
     ts = ts.replace("Z", "+00:00")
@@ -10,7 +9,6 @@ def fmt_dt_iso(ts: str | None) -> str:
 
 
 def format_offer_text_no_description(offer: Dict[str, Any]) -> str:
-    """Форматирует текст товара без описания для отображения в боте"""
     publishers = offer.get("product_publishers", [])
     categories = offer.get("product_categories", [])
 

@@ -10,7 +10,6 @@ from .settings import Settings
 
 class BotContainer:
     """Dependency Injection контейнер для бота"""
-
     def __init__(self):
         self._settings: Optional[Settings] = None
         self._bot: Optional[Bot] = None
@@ -18,7 +17,6 @@ class BotContainer:
         self._api_client: Optional[ApiClient] = None
 
     async def initialize(self):
-        """Инициализация всех компонентов"""
         self._settings = Settings.from_env()
         self._api_client = ApiClient(
             self._settings.api_base_url, self._settings.service_token
@@ -29,13 +27,10 @@ class BotContainer:
         )
         self._dispatcher = Dispatcher()
 
-        # Настройка middleware и роутеров
         self._setup_dispatcher()
 
     def _setup_dispatcher(self):
-        """Настройка диспетчера"""
 
-        # Middleware для DI
         class ApiMiddleware:
             def __init__(self, container: "BotContainer"):
                 self.container = container
@@ -46,7 +41,6 @@ class BotContainer:
 
         self._dispatcher.update.outer_middleware(ApiMiddleware(self))
 
-        # Подключение роутеров
         for router_module in (
             start.router,
             help.router,
@@ -57,7 +51,6 @@ class BotContainer:
         ):
             self._dispatcher.include_router(router_module)
 
-    # Properties
     @property
     def settings(self) -> Settings:
         if not self._settings:
@@ -83,12 +76,10 @@ class BotContainer:
         return self._api_client
 
     async def cleanup(self):
-        """Очистка ресурсов"""
         if self._api_client:
             await self._api_client.close()
         if self._bot:
             await self._bot.session.close()
 
 
-# Глобальный контейнер
 container = BotContainer()

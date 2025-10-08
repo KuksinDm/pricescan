@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta
 
-from django.db.models import Count, Min, Q
+from django.db.models import Count, F, Min, OuterRef, Q, Subquery
+from django.db.models.expressions import Window
+from django.db.models.functions import RowNumber
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import mixins, permissions, viewsets
@@ -108,27 +110,40 @@ class ProductViewSet(viewsets.ReadOnlyModelViewSet):
         if not query:
             return Response({"detail": "Параметр q обязателен"}, status=400)
 
-        products = self.get_queryset()
-        if not products.exists():
-            return Response({"detail": "Не найдено"}, status=404)
+        products = Product.objects.prefetch_related("offers", "offers__shop").annotate(
+            min_price=Min("offers__price"), offers_count=Count("offers", distinct=True)
+        )
+        products = products.filter(
+            Q(title__icontains=query)
+            | Q(publishers__name__icontains=query)
+            | Q(categories__name__icontains=query)
+        ).order_by("title")
 
-        results = []
-        for product in products:
-            best_offer = (
-                Offer.objects.filter(product=product, is_available=True)
-                .select_related("shop")
-                .order_by("price")
-                .first()
+        product_ids_sq = products.values("id")
+
+        offers_count_sq = (
+            Offer.objects.filter(product_id=OuterRef("product_id"), is_available=True)
+            .values("product_id")
+            .annotate(c=Count("id"))
+            .values("c")[:1]
+        )
+
+        best_offers = (
+            Offer.objects.filter(is_available=True, product_id__in=product_ids_sq)
+            .annotate(
+                rn=Window(
+                    expression=RowNumber(),
+                    partition_by=[F("product_id")],
+                    order_by=F("price").asc(),
+                ),
+                total_offers=Subquery(offers_count_sq),
             )
-            if best_offer:
-                offer_data = OfferSerializer(best_offer).data
-                offer_data["total_offers"] = Offer.objects.filter(
-                    product=product, is_available=True
-                ).count()
-                results.append(offer_data)
+            .filter(rn=1)
+            .select_related("product", "shop")
+        )
 
-        results.sort(key=lambda x: float(x["price"]))
-        return Response(results, status=200)
+        data = OfferSerializer(best_offers, many=True).data
+        return Response(data, status=200)
 
     @extend_schema(
         summary="Обновить цены товара",
@@ -332,14 +347,8 @@ class ShopViewSet(viewsets.ReadOnlyModelViewSet):
         tags=["shops"],
         parameters=[
             OpenApiParameter(
-                name="query",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                description="Поисковый запрос (по умолчанию 'настольная игра')",
-            ),
-            OpenApiParameter(
                 name="limit",
-                type=OpenApiTypes.INT,
+                type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 description="Количество товаров для поиска (по умолчанию 50)",
             ),
@@ -347,10 +356,8 @@ class ShopViewSet(viewsets.ReadOnlyModelViewSet):
     )
     @action(detail=True, methods=["post"], url_path="discover")
     def discover_products(self, request, pk=None):
-        query = request.data.get("query", "настольная игра")
-        limit = request.data.get("limit", 50)
-
-        discover_products_for_shop.delay(int(pk), query, limit)
+        limit = int(request.data.get("limit", 50))
+        discover_products_for_shop.delay(int(pk), limit)
         return Response({"queued": True}, status=202)
 
     @extend_schema(

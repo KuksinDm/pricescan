@@ -10,7 +10,6 @@ from .texts import ALERTS_BTN, DISCOUNTS_BTN, FAV_BTN, HELP_BTN, SEARCH_BTN
 
 
 def main_menu_kb() -> ReplyKeyboardMarkup:
-    """Создает главное меню бота"""
     kb = ReplyKeyboardBuilder()
     kb.row(KeyboardButton(text=SEARCH_BTN), width=1)
     kb.row(KeyboardButton(text=FAV_BTN), KeyboardButton(text=ALERTS_BTN), width=2)
@@ -23,7 +22,6 @@ def main_menu_kb() -> ReplyKeyboardMarkup:
 
 
 def offer_actions_kb(product_id: int, url: str, currency: str) -> InlineKeyboardMarkup:
-    """Создает клавиатуру с действиями для товара"""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [

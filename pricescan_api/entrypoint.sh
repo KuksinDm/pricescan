@@ -5,7 +5,7 @@ echo "Waiting for database..."
 sleep 5
 
 # Создаем миграции
-python manage.py makemigrations
+# python manage.py makemigrations
 
 # Выполняем миграции
 python manage.py migrate

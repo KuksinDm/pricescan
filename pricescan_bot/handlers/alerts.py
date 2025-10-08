@@ -31,7 +31,6 @@ async def btn_alerts(message: Message, container):
     try:
         await ensure_jwt(message, container.api_client)
     except Exception:
-        logger.exception("Failed to ensure JWT for alerts")
         return await message.answer("Ошибка авторизации. Попробуйте позже.")
 
     try:
@@ -39,7 +38,7 @@ async def btn_alerts(message: Message, container):
             telegram_id=message.from_user.id, limit=DEFAULT_PAGE_LIMIT, offset=OFFSET
         )
     except Exception:
-        logger.exception("Failed to get alerts page")
+        logger.exception("Failed to load alerts for user %s", message.from_user.id)
         return await message.answer("Не удалось получить подписки.")
 
     if not items:
@@ -52,7 +51,6 @@ async def btn_alerts(message: Message, container):
 
 @router.callback_query(F.data.startswith("alert-page:"))
 async def cb_alerts_page(cb: CallbackQuery, container):
-    """Обработчик пагинации алертов - переключает страницы"""
     offset = parse_callback_offset(cb.data)
 
     try:
@@ -60,7 +58,6 @@ async def cb_alerts_page(cb: CallbackQuery, container):
             telegram_id=cb.from_user.id, limit=DEFAULT_PAGE_LIMIT, offset=offset
         )
     except Exception:
-        logger.exception("Failed to get alerts page: offset=%s", offset)
         return await cb.answer("Не удалось загрузить страницу", show_alert=True)
 
     if not items:
@@ -75,7 +72,6 @@ async def cb_alerts_page(cb: CallbackQuery, container):
 
 @router.callback_query(F.data.startswith("alert-sel:"))
 async def cb_alert_select(cb: CallbackQuery, container):
-    """Обработчик выбора алерта - добавляет/убирает из множественного выбора"""
     try:
         alert_id = parse_callback_alert_id(cb.data)
     except ValueError:
@@ -86,7 +82,6 @@ async def cb_alert_select(cb: CallbackQuery, container):
             telegram_id=cb.from_user.id, limit=LARGE_LIMIT
         )
     except Exception:
-        logger.exception("Failed to get alerts list for selection")
         return await cb.answer("Не удалось загрузить список", show_alert=True)
 
     selected = toggle_multi_selected(cb.from_user.id, alert_id)
@@ -100,7 +95,6 @@ async def cb_alert_select(cb: CallbackQuery, container):
 
 @router.callback_query(F.data == "alert-on-selected")
 async def cb_alerts_activate_selected(cb: CallbackQuery, container):
-    """Включает все выбранные алерты"""
     user_id = cb.from_user.id
     selected_ids = get_selected_ids(user_id)
 
@@ -113,7 +107,7 @@ async def cb_alerts_activate_selected(cb: CallbackQuery, container):
             if await container.api_client.toggle_alert(alert_id, telegram_id=user_id):
                 activated_count += 1
         except Exception:
-            logger.exception("Failed to activate alert: id=%s", alert_id)
+            pass
 
     clear_multi(user_id)
     await refresh_alerts_page(
@@ -123,7 +117,6 @@ async def cb_alerts_activate_selected(cb: CallbackQuery, container):
 
 @router.callback_query(F.data == "alert-off-selected")
 async def cb_alerts_deactivate_selected(cb: CallbackQuery, container):
-    """Выключает все выбранные алерты"""
     user_id = cb.from_user.id
     selected_ids = get_selected_ids(user_id)
 
@@ -136,7 +129,7 @@ async def cb_alerts_deactivate_selected(cb: CallbackQuery, container):
             if await container.api_client.toggle_alert(alert_id, telegram_id=user_id):
                 deactivated_count += 1
         except Exception:
-            logger.exception("Failed to deactivate alert: id=%s", alert_id)
+            pass
 
     clear_multi(user_id)
     await refresh_alerts_page(
@@ -159,7 +152,7 @@ async def cb_alerts_delete_selected(cb: CallbackQuery, container):
             if await container.api_client.delete_alert(alert_id, telegram_id=user_id):
                 deleted_count += 1
         except Exception:
-            logger.exception("Failed to delete alert: id=%s", alert_id)
+            pass
 
     clear_multi(user_id)
     await refresh_alerts_page(
@@ -169,7 +162,6 @@ async def cb_alerts_delete_selected(cb: CallbackQuery, container):
 
 @router.callback_query(F.data == "alert-edit-selected")
 async def cb_alerts_edit_selected(cb: CallbackQuery):
-    """Переводит в режим редактирования цены выбранных алертов"""
     user_id = cb.from_user.id
     selected_ids = get_selected_ids(user_id)
 
@@ -178,7 +170,6 @@ async def cb_alerts_edit_selected(cb: CallbackQuery):
 
     if cb.message:
         await cb.message.answer("Введите новую пороговую цену (например 1990.00)")
-    # Объединяем ID алертов в строку для режима ожидания
     alert_ids_str = ",".join(map(str, selected_ids))
     set_wait_mode(user_id, f"alertEdit:{alert_ids_str}")
 
@@ -188,7 +179,6 @@ async def cb_alerts_edit_selected(cb: CallbackQuery):
 
 @router.message(F.text.regexp(r"^\d+[\.,]?\d*$"))
 async def on_price_input(message: Message, container):
-    """Обрабатывает ввод цены для создания/редактирования алертов"""
     user_id = message.from_user.id
     wait_mode = get_wait_mode(user_id)
 

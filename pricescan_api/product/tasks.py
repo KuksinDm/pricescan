@@ -18,67 +18,51 @@ from .constants import (
     DEFAULT_TIMEOUT,
     REFRESH_COUNTDOWN,
 )
+from .integrations.bot_client import BotClient
 from .models import Offer, PriceAlert, Shop
 from .services.universal_parser_service import UniversalParserService
 
 logger = logging.getLogger("parser_results")
 
-
-def _get_bot_headers() -> dict:
-    """Получение заголовков для запросов к боту"""
-    return {
-        "X-Service-Token": settings.BOT_SERVICE_TOKEN,
-        "Content-Type": "application/json",
-    }
+_bot_client: BotClient | None = None
 
 
-def _send_bot_message(user_id: int, message: str) -> bool:
-    """Отправка сообщения пользователю через бота"""
-    try:
-        payload = {"user_id": user_id, "message": message}
-        response = requests.post(
-            BOT_SEND_MESSAGE_URL,
-            json=payload,
-            headers=_get_bot_headers(),
+def get_bot_client() -> BotClient:
+    global _bot_client
+    if _bot_client is None:
+        _bot_client = BotClient(
+            service_token=settings.BOT_SERVICE_TOKEN or "",
+            send_message_url=BOT_SEND_MESSAGE_URL,
+            send_alert_url=BOT_SEND_ALERT_URL,
             timeout=DEFAULT_TIMEOUT,
         )
-        return response.status_code == 200
-    except Exception as e:
-        logger.error(f"Failed to send bot message: {e}")
-        return False
+    return _bot_client
 
 
-def _send_bot_alert(alert_data: dict) -> bool:
-    """Отправка алерта пользователю через бота"""
-    try:
-        response = requests.post(
-            BOT_SEND_ALERT_URL,
-            json=alert_data,
-            headers=_get_bot_headers(),
-            timeout=DEFAULT_TIMEOUT,
-        )
-        return response.status_code == 200
-    except Exception as e:
-        logger.error(f"Failed to send bot alert: {e}")
-        return False
-
-
-@shared_task(queue="light")
+@shared_task(
+    queue="light",
+    autoretry_for=(requests.exceptions.RequestException, Exception),
+    retry_backoff=True,
+    retry_backoff_max=60,
+    retry_jitter=True,
+    max_retries=5,
+    acks_late=True,
+)
 def parse_product_universal(product_id: int, shop_id: int, url: str = None):
     """Универсальный парсинг товара"""
     try:
         service = UniversalParserService()
         result = service.parse_product(product_id, shop_id, url)
 
-        if result["ok"]:
+        if result.ok and result.value:
             logger.info(
                 f"Updated product {product_id}: "
-                f"{result.get('price')} {result.get('title', '')}"
+                f"{result.value.get('price')} {result.value.get('title', '')}"
             )
 
-        return result
+        return result.to_dict()
     except Exception as e:
-        logger.error(f"Parse error for product {product_id}: {e}")
+        logger.error("Parse error for product %s: %s", product_id, e)
         return {"ok": False, "error": str(e)}
 
 
@@ -113,7 +97,7 @@ def bulk_parse_all_shops() -> dict:
                     "parser_type": shop.parser_type,
                 }
             else:
-                discover_products_for_shop.delay(shop.id)
+                discover_products_for_shop.delay(shop.id, DEFAULT_DISCOVERY_LIMIT)
                 results[shop.name] = {
                     "action": "discover",
                     "parser_type": shop.parser_type,
@@ -202,7 +186,7 @@ def send_refresh_result(product_id: int, user_telegram_id: int):
         else:
             message = "❌ Товар больше не доступен"
 
-        _send_bot_message(user_telegram_id, message)
+        get_bot_client().send_message(user_telegram_id, message)
         check_alerts_for_product.delay(product_id)
 
     except Exception as e:
@@ -259,7 +243,7 @@ def check_alerts_for_product(product_id: int) -> int:
                 "alert_id": alert.id,
             }
 
-            _send_bot_alert(alert_data)
+            get_bot_client().send_alert(alert_data)
 
             logger.info(
                 "ALERT TRIGGER user=%s product=%s price=%s url=%s",
@@ -279,7 +263,15 @@ def check_alerts_for_product(product_id: int) -> int:
     return count
 
 
-@shared_task(queue="heavy")
+@shared_task(
+    queue="heavy",
+    autoretry_for=(requests.exceptions.RequestException, Exception),
+    retry_backoff=True,
+    retry_backoff_max=120,
+    retry_jitter=True,
+    max_retries=3,
+    acks_late=True,
+)
 def discover_products_for_shop(
     shop_id: int, limit: int = DEFAULT_DISCOVERY_LIMIT
 ) -> dict:
@@ -350,7 +342,14 @@ def update_shop_products(shop_id: int) -> dict:
         return {"ok": False, "error": str(e)}
 
 
-@shared_task(queue="light")
+@shared_task(
+    queue="light",
+    autoretry_for=(requests.exceptions.RequestException,),
+    retry_backoff=True,
+    retry_backoff_max=60,
+    retry_jitter=True,
+    max_retries=3,
+)
 def health_check_parsers() -> dict:
     """Проверка здоровья всех парсеров"""
     service = UniversalParserService()

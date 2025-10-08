@@ -14,30 +14,24 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Управление жизненным циклом приложения"""
-    # Инициализация контейнера
     await container.initialize()
     logger.info("Bot container initialized")
 
-    # Запуск polling в фоне
     polling_task = asyncio.create_task(start_polling())
 
     yield
 
-    # Остановка polling
     polling_task.cancel()
     try:
         await polling_task
     except asyncio.CancelledError:
         pass
 
-    # Очистка ресурсов
     await container.cleanup()
     logger.info("Bot resources cleaned up")
 
 
 def create_app() -> FastAPI:
-    """Создание FastAPI приложения"""
     app = FastAPI(
         title="PriceScan Bot API",
         version="1.0.0",
@@ -53,7 +47,6 @@ app = create_app()
 def verify_service_token(
     x_service_token: str = Header(None, alias="X-Service-Token"),
 ) -> bool:
-    """Проверка сервисного токена с защитой от timing attacks"""
     if not container.settings:
         raise HTTPException(status_code=500, detail="Server not initialized")
 
@@ -63,7 +56,6 @@ def verify_service_token(
 
 
 async def _ensure_bot_ready():
-    """Проверяет, что бот инициализирован"""
     if not container.bot:
         raise HTTPException(status_code=500, detail="Bot not initialized")
 
@@ -73,7 +65,6 @@ async def send_alert_endpoint(
     alert_data: AlertNotification,
     x_service_token: str = Header(None, alias="X-Service-Token"),
 ):
-    """Отправка уведомления о срабатывании алерта пользователю"""
     verify_service_token(x_service_token)
     await _ensure_bot_ready()
 
@@ -108,7 +99,6 @@ async def send_message_endpoint(
     message_data: CustomMessage,
     x_service_token: str = Header(None, alias="X-Service-Token"),
 ):
-    """Универсальная отправка сообщения пользователю"""
     verify_service_token(x_service_token)
     await _ensure_bot_ready()
 
@@ -127,7 +117,6 @@ async def send_message_endpoint(
 
 @app.get("/health")
 async def health_check() -> HealthResponse:
-    """Проверка здоровья API сервера"""
     return HealthResponse(
         status="ok",
         service="pricescan-bot-api",
@@ -138,7 +127,6 @@ async def health_check() -> HealthResponse:
 
 @app.get("/")
 async def root() -> RootResponse:
-    """Корневой эндпоинт"""
     return RootResponse(
         message="PriceScan Bot API",
         version="1.0.0",
@@ -151,7 +139,6 @@ async def root() -> RootResponse:
 
 
 async def start_polling():
-    """Запуск polling режима"""
     logger.info("Bot starting polling...")
     try:
         await container.dispatcher.start_polling(container.bot)
@@ -161,15 +148,12 @@ async def start_polling():
 
 
 def run_polling():
-    """Запуск только polling (для разработки)"""
     asyncio.run(start_polling())
 
 
 def run_api(host: str = "0.0.0.0", port: int = 8000):
-    """Запуск API сервера"""
     uvicorn.run(app, host=host, port=port)
 
 
 def run():
-    """Запуск по умолчанию (API сервер)"""
     run_api()

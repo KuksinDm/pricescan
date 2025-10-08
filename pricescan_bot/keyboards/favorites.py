@@ -4,7 +4,6 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 def favorites_kb(
     items: list[dict], selected: set[int], prev_off: int | None, next_off: int | None
 ) -> InlineKeyboardMarkup:
-    """Создает клавиатуру для списка избранных товаров с выбором и пагинацией"""
     rows: list[list[InlineKeyboardButton]] = []
 
     for favorite_item in items:

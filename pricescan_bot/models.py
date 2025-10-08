@@ -2,8 +2,6 @@ from pydantic import BaseModel
 
 
 class AlertNotification(BaseModel):
-    """Модель для уведомления о срабатывании алерта"""
-
     user_id: int
     product_id: int
     price: float
@@ -14,16 +12,12 @@ class AlertNotification(BaseModel):
 
 
 class CustomMessage(BaseModel):
-    """Модель для произвольного сообщения"""
-
     user_id: int
     message: str
     parse_mode: str = "HTML"
 
 
 class HealthResponse(BaseModel):
-    """Модель для ответа health check"""
-
     status: str
     service: str
     bot_connected: bool
@@ -31,8 +25,6 @@ class HealthResponse(BaseModel):
 
 
 class RootResponse(BaseModel):
-    """Модель для корневого эндпоинта"""
-
     message: str
     version: str
     endpoints: dict

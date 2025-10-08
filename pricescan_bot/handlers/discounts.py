@@ -14,17 +14,15 @@ logger = logging.getLogger(__name__)
 
 @router.message(F.text == DISCOUNTS_BTN)
 async def btn_discounts(message: Message, container):
-    """Обработчик кнопки 'Акции' - показывает товары со скидками"""
     try:
         await ensure_jwt(message, container.api_client)
     except Exception:
-        logger.exception("Failed to ensure JWT for discounts")
         return await message.answer("Ошибка авторизации. Попробуйте позже.")
 
     try:
         offers = await container.api_client.get_discounts(limit=DEFAULT_LIMIT)
     except Exception:
-        logger.exception("Failed to get discounts")
+        logger.exception("Failed to load discounts")
         return await message.answer("Не удалось получить акции.")
 
     if not offers:
@@ -45,7 +43,6 @@ async def btn_discounts(message: Message, container):
 
 
 def format_discount_offer_text(offer: dict) -> str:
-    """Форматирует текст товара со скидкой"""
     publishers = offer.get("product_publishers", [])
     categories = offer.get("product_categories", [])
 
@@ -60,8 +57,11 @@ def format_discount_offer_text(offer: dict) -> str:
         f"Игра: {offer['product_title']}\n"
         f"Издатель: {publishers_str}\n"
         f"Категория: {categories_str}\n"
-        f"Игроки: {offer.get('min_players') or '?'}–{offer.get('max_players') or '?'} | "
-        f"Время: {offer.get('playtime_min') or '?'} мин | Возраст: {offer.get('min_age') or '?'}+\n"
-        f"Цена: {offer['price']} {offer['currency']} | Магазин: {offer['shop']['name']}"
+        f"Игроки: {offer.get('min_players') or '?'}–"
+        f"{offer.get('max_players') or '?'} | "
+        f"Время: {offer.get('playtime_min') or '?'} мин | "
+        f"Возраст: {offer.get('min_age') or '?'}+\n"
+        f"Цена: {offer['price']} {offer['currency']} | "
+        f"Магазин: {offer['shop']['name']}"
         f"{discount_info}"
     )

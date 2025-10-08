@@ -14,7 +14,6 @@ logger = logging.getLogger(__name__)
 
 @router.message(Command("start"))
 async def cmd_start(message: Message, container):
-    """Обработчик команды /start - приветствие нового пользователя"""
     logger.info(f"User {message.from_user.id} started the bot")
 
     try:
@@ -27,7 +26,6 @@ async def cmd_start(message: Message, container):
 
 @router.message(Command("help"))
 async def cmd_help(message: Message, container):
-    """Обработчик команды /help - показывает справку"""
     logger.info(f"User {message.from_user.id} requested help via command")
 
     try:

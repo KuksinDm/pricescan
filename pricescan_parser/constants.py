@@ -2,12 +2,22 @@
 
 # HTTP настройки
 DEFAULT_TIMEOUT = 30
-DEFAULT_RETRY_DELAY = 0.5
+DEFAULT_RETRY_DELAY = 0.1
 DEFAULT_MAX_RETRIES = 3
+DEFAULT_MAX_CONCURRENT_REQUESTS = 30
+DEFAULT_BATCH_SIZE = 3
+
+# TCP Connector настройки
+DEFAULT_CONNECTOR_LIMIT = 100  # Общий лимит соединений
+DEFAULT_CONNECTOR_LIMIT_PER_HOST = 30  # Лимит соединений на хост
+DEFAULT_CONNECTOR_TTL_DNS_CACHE = 300  # Кэш DNS на 5 минут (в секундах)
+DEFAULT_CONNECTOR_USE_DNS_CACHE = True  # Использовать кэш DNS
 
 # Парсинг настройки
 DEFAULT_LIMIT = 1000
-DEFAULT_REQUEST_DELAY = 0.5
+DEFAULT_REQUEST_DELAY = 0.05
+DEFAULT_PAGE_START = 1
+
 
 # Селекторы для HobbyGames (из рабочей версии)
 HOBBYGAMES_SELECTORS = {
@@ -20,8 +30,8 @@ HOBBYGAMES_SELECTORS = {
     ],
     "manufacturers": [
         "a.manufacturers__value",  # Основной селектор из рабочей версии
-        ".manufacturers a",
-        "a[href*='manufacturer']",
+        # ".manufacturers a",
+        # "a[href*='manufacturer']",
     ],
     "categories": [
         ".breadcrumbs__link",  # Из рабочей версии
@@ -29,9 +39,9 @@ HOBBYGAMES_SELECTORS = {
     ],
     "product_links": [
         ".product-card-title a",  # Из рабочей версии
-        ".product-card__title a",
-        "a.catalog-item__title",
-        "a.product-item-title",
+        # ".product-card__title a",
+        # "a.catalog-item__title",
+        # "a.product-item-title",
     ],
     "product_cards": [
         '[data-entity="parent-container"]',

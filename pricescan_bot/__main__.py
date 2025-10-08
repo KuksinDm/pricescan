@@ -9,8 +9,6 @@ logger = logging.getLogger(__name__)
 
 
 def main():
-    """Главная функция с поддержкой разных режимов запуска бота"""
-    # Инициализация логов до старта
     setup_logging(
         log_dir=os.path.join(os.getcwd(), "logs"),
         level=os.getenv("BOT_LOG_LEVEL", "INFO"),
@@ -19,7 +17,6 @@ def main():
     logger.info("Starting PriceScan bot...")
 
     try:
-        # Проверяем аргументы командной строки
         if len(sys.argv) > 1:
             mode = sys.argv[1]
             logger.info(f"Starting in {mode} mode")
@@ -36,7 +33,6 @@ def main():
                 print("Usage: python -m pricescan_bot [polling|api [host] [port]]")
                 sys.exit(1)
         else:
-            # По умолчанию запускаем в API режиме
             logger.info("No mode specified, starting in default API mode")
             run()
 

@@ -42,13 +42,12 @@ async def do_search(message: Message, container):
     try:
         await ensure_jwt(message, container.api_client)
     except Exception:
-        logger.exception("Failed to ensure JWT for search")
         return await message.answer("Ошибка авторизации. Попробуйте позже.")
 
     try:
         offers = await container.api_client.get_cheapest(query)
     except Exception:
-        logger.exception("get_cheapest failed for query=%r", query)
+        logger.exception("Search failed for query: %s", query)
         return await message.answer("Сервис временно недоступен. Попробуйте позже.")
 
     if not offers:
@@ -68,7 +67,6 @@ async def do_search(message: Message, container):
 
 @router.callback_query(F.data.startswith("refresh:"))
 async def cb_refresh_product(cb: CallbackQuery, container):
-    """Обработчик обновления товара - запрашивает обновление цен"""
     try:
         product_id = parse_callback_product_id(cb.data)
     except ValueError:
@@ -79,7 +77,6 @@ async def cb_refresh_product(cb: CallbackQuery, container):
             product_id, telegram_id=cb.from_user.id
         )
     except Exception:
-        logger.exception("refresh_product failed: id=%s", product_id)
         return await cb.answer("Не удалось", show_alert=True)
 
     await cb.answer("Запрошено обновление" if success else "Не удалось")
@@ -87,7 +84,6 @@ async def cb_refresh_product(cb: CallbackQuery, container):
 
 @router.callback_query(F.data.startswith("offers:"))
 async def cb_show_offers(cb: CallbackQuery, container):
-    """Обработчик показа всех предложений товара"""
     try:
         product_id = parse_callback_product_id(cb.data)
     except ValueError:
@@ -98,7 +94,6 @@ async def cb_show_offers(cb: CallbackQuery, container):
             product_id, limit=DEFAULT_OFFERS_LIMIT
         )
     except Exception:
-        logger.exception("get_offers failed: id=%s", product_id)
         return await cb.answer("Не удалось", show_alert=True)
 
     if not items:
@@ -127,7 +122,6 @@ async def cb_add_to_favorites(cb: CallbackQuery, container):
             product_id, telegram_id=cb.from_user.id
         )
     except Exception:
-        logger.exception("add_favorite failed: id=%s", product_id)
         return await cb.answer("Не удалось", show_alert=True)
 
     await cb.answer("Добавлено в избранное" if success else "Уже в избранном")

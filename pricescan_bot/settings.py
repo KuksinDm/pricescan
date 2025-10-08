@@ -27,18 +27,15 @@ class Settings:
         log_level = os.getenv("BOT_LOG_LEVEL", "INFO").strip().upper()
         api_timeout = int(os.getenv("API_TIMEOUT", "15"))
 
-        # Валидация обязательных параметров
         if not bot_token:
             raise RuntimeError("BOT_TOKEN не задан в переменных окружения")
 
         if not service_token:
             raise RuntimeError("BOT_SERVICE_TOKEN не задан в переменных окружения")
 
-        # Валидация URL
         if not api_base_url.startswith(("http://", "https://")):
             raise RuntimeError(f"Некорректный API_BASE_URL: {api_base_url}")
 
-        # Валидация уровня логирования
         valid_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
         if log_level not in valid_levels:
             raise RuntimeError(
@@ -54,11 +51,8 @@ class Settings:
         )
 
     def __post_init__(self):
-        """Дополнительная валидация после создания объекта"""
-        # Убеждаемся, что URL заканчивается на /
         if not self.api_base_url.endswith("/"):
             self.api_base_url += "/"
 
-        # Валидация таймаута
         if self.api_timeout <= 0:
             raise ValueError("API_TIMEOUT должен быть положительным числом")

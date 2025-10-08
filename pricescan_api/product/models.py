@@ -84,7 +84,7 @@ class Product(models.Model):
 
 class Shop(models.Model):
     name = models.CharField(max_length=SHOP_NAME_MAX_LENGTH)
-    domain = models.URLField()
+    domain = models.URLField(unique=True)
     parser_type = models.CharField(
         max_length=PARSER_TYPE_MAX_LENGTH,
         choices=[
@@ -120,6 +120,10 @@ class Offer(models.Model):
         indexes = [
             models.Index(fields=["price"]),
             models.Index(fields=["last_updated"]),
+            models.Index(
+                fields=["product", "is_available", "price"],
+                name="offer_prod_avail_price_idx",
+            ),
         ]
         verbose_name = "Предложение"
         verbose_name_plural = "Предложения"
@@ -141,6 +145,9 @@ class PriceHistory(models.Model):
     class Meta:
         indexes = [
             models.Index(fields=["timestamp"]),
+            models.Index(
+                fields=["offer", "-timestamp"], name="pricehist_offer_ts_desc_idx"
+            ),
         ]
         verbose_name = "История цен"
         verbose_name_plural = "История цен"
