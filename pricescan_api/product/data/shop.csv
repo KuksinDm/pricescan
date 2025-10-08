@@ -1,0 +1,3 @@
+id,name,domain,parser_type,is_active
+2,Мосигра,https://www.mosigra.ru/nastolnye-igry,playwright,1
+1,HobbyGames,https://hobbygames.ru/nastolnie,beautifulsoup,1

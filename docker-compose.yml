@@ -1,0 +1,136 @@
+
+services:
+  db_pricescan:
+    image: postgres:15
+    volumes:
+      - postgres_data_pricescan:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=pricescan_db
+      - POSTGRES_USER=pricescan_user
+      - POSTGRES_PASSWORD=pricescan_password
+    restart: always
+    networks:
+      - app_network
+
+  web_pricescan:
+    build: ./pricescan_api
+    image: myzos/web_pricescan:latest
+    volumes:
+      - media_data_pricescan:/app/media
+      - staticfiles_pricescan:/app/backend_static
+      - ./logs:/app/logs
+    env_file:
+      - .env
+    depends_on:
+      - db_pricescan
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "python - <<'PY'\nimport urllib.request,sys;url='http://localhost:9040/api/docs/';\ntry:\n  urllib.request.urlopen(url, timeout=3); sys.exit(0)\nexcept Exception:\n  sys.exit(1)\nPY"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks:
+      app_network:
+        aliases:
+          - web-pricescan
+
+  bot_pricescan:
+    build: ./pricescan_bot
+    image: myzos/bot_pricescan:latest
+    env_file:
+      - .env
+    environment:
+      API_BASE_URL: http://web-pricescan:9040/api/
+    depends_on:
+      web_pricescan:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - app_network
+
+  redis:
+    image: redis:7.2-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    networks: [app_network]
+
+  celery_worker_pricescan:
+    build: ./pricescan_api
+    image: myzos/celery_worker_pricescan:latest
+    env_file: [.env]
+    depends_on: {redis: {condition: service_started}, db_pricescan: {condition: service_started}}
+    command: celery -A config worker --loglevel=info -Q light,heavy --concurrency=2
+    restart: always
+    networks: [app_network]
+
+  celery_beat_pricescan:
+    build: ./pricescan_api
+    image: myzos/celery_beat_pricescan:latest 
+    env_file: [.env]
+    depends_on: {redis: {condition: service_started}}
+    command: celery -A config beat --loglevel=info
+    restart: always
+    networks: [app_network]
+
+  pricescan_parser:
+    build: ./pricescan_parser
+    image: myzos/pricescan_parser:latest
+    volumes:
+      - ./shared_models:/app/shared_models 
+    networks:
+      - app_network
+    depends_on:
+      - redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  pricescan_playwright:
+    build: ./pricescan_playwright
+    image: myzos/pricescan_playwright:latest
+    volumes:
+      - ./shared_models:/app/shared_models 
+    networks:
+      - app_network
+    depends_on:
+      - redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+      
+  nginx_pricescan:
+    build:
+      context: ./nginx/
+      dockerfile: Dockerfile
+    image: myzos/nginx_pricescan:latest
+    volumes:
+        - staticfiles_pricescan:/var/html/static
+        - media_data_pricescan:/app/media 
+    ports:
+      - "9040:80"
+    depends_on:
+      - web_pricescan
+    restart: always
+    networks:
+      - app_network
+
+
+volumes:
+  postgres_data_pricescan:
+  staticfiles_pricescan:
+  media_data_pricescan:
+  redis_data:
+
+networks:
+  app_network:
+    driver: bridge 

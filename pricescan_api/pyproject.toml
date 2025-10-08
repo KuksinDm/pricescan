@@ -1,0 +1,37 @@
+[project]
+name = "pricescan-api"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "celery>=5.5.3",
+    "django>=5.2.6",
+    "django-celery-beat>=2.8.1",
+    "django-import-export>=4.3.9",
+    "django-redis>=6.0.0",
+    "djangorestframework>=3.16.1",
+    "djangorestframework-simplejwt>=5.5.1",
+    "dotenv>=0.9.9",
+    "drf-spectacular>=0.28.0",
+    "drf-spectacular-sidecar>=2025.9.1",
+    "gunicorn>=23.0.0",
+    "httpx>=0.28.1",
+    "psycopg2-binary>=2.9.10",
+    "python-slugify>=8.0.4",
+    "requests>=2.32.5",
+    "unidecode>=1.4.0",
+]
+[tool.ruff]
+line-length = 88
+exclude = [
+    "config/",
+    "migrations/",
+    "__pycache__/",
+    ".git/",
+    ".venv/",
+    "venv/",
+]
+
+[tool.ruff.lint]
+select = ["I", "C", "E", "F", "W"]
